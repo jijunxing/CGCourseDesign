@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>锥形灯</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="canvas"></canvas>
+
+  <script type="module">
+    import { createProgram, imgPromise } from './lv/Utils.js';
+    import {
+      Matrix4, PerspectiveCamera, Vector3
+    } from 'https://unpkg.com/three/build/three.module.js';
+    import OrbitControls from './lv/OrbitControls.js'
+    import Scene3D from './lv/Scene3D.js'
+    import { Light } from './lv/Light.js'
+    import Sphere from './lv/Sphere.js'
+    import Room from './lv/Room.js'
+    import { gouraudShading } from './lv/ShadingFrequency.js'
+    import Mat from './lv/Mat.js'
+    import Geo from './lv/Geo.js'
+    import Obj3D from './lv/Obj3D.js'
+
+    const canvas = document.getElementById('canvas');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    let gl = canvas.getContext('webgl');
+    gl.clearColor(0.1, 0.1, 0.1, 1);
+    gl.enable(gl.DEPTH_TEST);
+
+    // 目标点
+    const target = new Vector3(0, 6, -10)
+    //视点
+    const eye = new Vector3(0, 6, 0)
+    const [fov, aspect, near, far] = [
+      45, canvas.width / canvas.height,
+      0.1, 100
+    ]
+    // 透视相机
+    const camera = new PerspectiveCamera(fov, aspect, near, far)
+    camera.position.copy(eye)
+    // 轨道控制器
+    const orbit = new OrbitControls({ 
+      camera, 
+      target, 
+      dom: canvas,
+      enablePan: true,      // 启用平移
+      rotateDir: 'xy',      // 允许在xy方向旋转
+      enableZoom: true,
+      minZoom: 0.1,
+      maxZoom: 10,
+      enableDamping: true,
+      dampingFactor: 0.05,
+      rotateSpeed: 1.0,
+      panSpeed: 1.0,
+      zoomSpeed: 1.0
+    })
+
+    // 添加鼠标事件监听
+    canvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      orbit.pointerdown(e);
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      e.preventDefault();
+      orbit.pointermove(e);
+    });
+    canvas.addEventListener('pointerup', (e) => {
+      e.preventDefault();
+      orbit.pointerup();
+    });
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      orbit.wheel(e);
+    });
+
+    // 键盘控制
+    const moveSpeed = 0.3;
+    const keysPressed = new Set();
+    
+    window.addEventListener('keydown', (e) => {
+      keysPressed.add(e.key.toLowerCase());
+    });
+    
+    window.addEventListener('keyup', (e) => {
+      keysPressed.delete(e.key.toLowerCase());
+    });
+    
+    // 相机移动函数
+    function updateCameraPosition() {
+      const { position } = camera;
+      // 获取相机到目标点的方向作为前进方向
+      const forward = target.clone().sub(position).normalize();
+      // 计算右方向
+      const right = forward.clone().cross(new Vector3(0, 1, 0)).normalize();
+      
+      let moved = false;
+      // 前后移动
+      if (keysPressed.has('w')) {
+        const movement = forward.clone().multiplyScalar(moveSpeed);
+        position.add(movement);
+        target.add(movement);
+        moved = true;
+      }
+      if (keysPressed.has('s')) {
+        const movement = forward.clone().multiplyScalar(-moveSpeed);
+        position.add(movement);
+        target.add(movement);
+        moved = true;
+      }
+      
+      // 左右移动
+      if (keysPressed.has('a')) {
+        const movement = right.clone().multiplyScalar(-moveSpeed);
+        position.add(movement);
+        target.add(movement);
+        moved = true;
+      }
+      if (keysPressed.has('d')) {
+        const movement = right.clone().multiplyScalar(moveSpeed);
+        position.add(movement);
+        target.add(movement);
+        moved = true;
+      }
+      
+      // 上下移动
+      if (keysPressed.has('q')) {
+        position.y += moveSpeed;
+        target.y += moveSpeed;
+        moved = true;
+      }
+      if (keysPressed.has('e')) {
+        position.y -= moveSpeed;
+        target.y -= moveSpeed;
+        moved = true;
+      }
+      
+      if (moved) {
+        orbit.update();
+      }
+    }
+
+    // 定义光源
+    const lights = [
+      new Light([-6, 8, -6], [400, 300, 200]),  // 暖白光
+      new Light([6, 8, -6], [200, 300, 400]),   // 冷白光
+      new Light([-6, 8, 2], [400, 200, 200]),   // 暖光
+      new Light([6, 8, 2], [200, 200, 400])     // 冷光
+    ]
+    
+    // 光照数据
+    const lightData = {
+      u_LightPositions: {
+        value: lights.map(light => [...light.position]).flat(),
+        type: 'uniform3fv',
+      },
+      u_LightColors: {
+        value: lights.map(light => [...light.color]).flat(),
+        type: 'uniform3fv',
+      }
+    }
+    // 材质数据
+    const matData = {
+      u_Kd: {
+        value: [0.9, 0.9, 0.9],
+        type: 'uniform3fv',
+      },
+      u_Ks: {
+        value: [0.4, 0.4, 0.4],
+        type: 'uniform3fv',
+      },
+      u_Ka: {
+        value: [0.4, 0.4, 0.4],
+        type: 'uniform3fv',
+      },
+    }
+    // 相机数据
+    const cameraData = {
+      u_PvMatrix: {
+        value: orbit.getPvMatrix().elements,
+        type: 'uniformMatrix4fv',
+      },
+      u_Eye: {
+        value: Object.values(camera.position),
+        type: 'uniform3fv',
+      },
+    }
+
+    // 景
+    const scene = new Scene3D({ gl })
+
+    // 等待景初始化完成后再创建对象
+    async function initScene() {
+      // 检查WebGL上下文
+      if (!gl) {
+        console.error('Unable to initialize WebGL. Your browser may not support it.');
+        return;
+      }
+
+      // 等待场景准备就绪
+      await new Promise(resolve => {
+        const checkReady = () => {
+          if (scene.ready) {
+            resolve();
+          } else {
+            setTimeout(checkReady, 100);
+          }
+        };
+        checkReady();
+      });
+
+      // 基础材质
+      const basicMaterial = {
+        program: 'Main',
+        programName: 'Main',
+        data: {
+          ...matData,
+          ...lightData,
+          ...cameraData
+        }
+      }
+
+      // 创建房间
+      const room = new Room(20, 12, 20)
+      scene.add(new Obj3D({
+        geo: new Geo({
+          data: {
+            a_Position: {
+              array: new Float32Array(room.vertices),
+              size: 3
+            },
+            a_Normal: {
+              array: new Float32Array(room.normals),
+              size: 3
+            },
+            a_TexCoord: {
+              array: new Float32Array(room.texCoords),
+              size: 2
+            },
+            a_TextureType: {
+              array: new Float32Array(room.textureTypes),
+              size: 1
+            }
+          },
+          index: {
+            array: new Uint16Array(room.indexes)
+          }
+        }),
+        mat: new Mat({
+          program: 'Main',
+          programName: 'Main',
+          data: {
+            ...basicMaterial.data,
+            u_ModelMatrix: {
+              value: new Matrix4().elements,
+              type: 'uniformMatrix4fv'
+            },
+            u_WallTex: {
+              value: 0,
+              type: 'uniform1i'
+            },
+            u_FloorTex: {
+              value: 1,
+              type: 'uniform1i'
+            }
+          },
+          mode: 'TRIANGLES'
+        })
+      }))
+
+      // 创建球体
+      const spheres = [
+        { position: [-4, 0.8, -4], color: [0.8, 0.3, 0.3] },
+        { position: [0, 0.8, 0], color: [0.3, 0.8, 0.3] },
+        { position: [4, 0.8, 4], color: [0.3, 0.3, 0.8] }
+      ]
+
+      spheres.forEach(({ position, color }) => {
+        const sphere = new Sphere(0.8, 24, 24)
+        scene.add(new Obj3D({
+          geo: new Geo({
+            data: {
+              a_Position: {
+                array: new Float32Array(sphere.vertices),
+                size: 3
+              },
+              a_Normal: {
+                array: new Float32Array(sphere.normals),
+                size: 3
+              }
+            },
+            index: {
+              array: new Uint16Array(sphere.indexes)
+            }
+          }),
+          mat: new Mat({
+            program: 'Main',
+            programName: 'Main',
+            data: {
+              ...basicMaterial.data,
+              u_ModelMatrix: {
+                value: new Matrix4().setPosition(...position).elements,
+                type: 'uniformMatrix4fv'
+              },
+              u_Color: {
+                value: color,
+                type: 'uniform3fv'
+              }
+            },
+            mode: 'TRIANGLES'
+          })
+        }))
+      })
+
+      // 添加光源可视化
+      lights.forEach(light => {
+        scene.add(light.createVisualizer({
+          gl,
+          camera: {
+            getPvMatrix: () => orbit.getPvMatrix()
+          }
+        }));
+      })
+
+      // 加载纹理
+      const [wallTex, floorTex] = await Promise.all([
+          imgPromise('./textures/wall.jpg'),
+          imgPromise('./textures/floor.jpg')
+      ]);
+
+      // 设置纹理参数
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
+      
+      // 创建墙壁纹理
+      const wallTexture = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, wallTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, wallTex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      
+      // 创建地板纹理
+      const floorTexture = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, floorTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, floorTex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+
+      // 设置纹理
+      const textureUniforms = {
+          u_WallTex: {
+              value: 0,
+              type: 'uniform1i'
+          },
+          u_FloorTex: {
+              value: 1,
+              type: 'uniform1i'
+          }
+      };
+      
+      // 更新基础材质数据
+      basicMaterial.data = {
+          ...basicMaterial.data,
+          ...textureUniforms
+      };
+      
+      // 开始动画
+      animate();
+    }
+
+    // 启动场景初始化
+    initScene().catch(error => {
+      console.error('Scene initialization failed:', error);
+    });
+
+    // 渲染循环
+    function animate() {
+        if (!scene.ready) {
+            requestAnimationFrame(animate);
+            return;
+        }
+        // 更新时间
+        time += 0.016;
+        
+        // 更新相机位置
+        updateCameraPosition();
+        
+        // 始终更新轨道控制器
+        orbit.update();
+        
+        // 更新动态光源位置
+        lights.forEach((light, index) => {
+            const angle = time * lightSpeed + (index * Math.PI / 2);
+            light.position.x = Math.cos(angle) * lightRadius;
+            light.position.z = Math.sin(angle) * lightRadius;
+        });
+        
+        // 更新光照数据
+        const lightPositions = [];
+        const lightColors = [];
+        lights.forEach(light => {
+            lightPositions.push(...light.position);
+            lightColors.push(...light.color.map(x => x/400));
+        });
+        
+        // 更新场景中所有对象的材质数据
+        scene.children.forEach(obj => {
+            if (obj.mat) {
+                Object.assign(obj.mat.data, {
+                    u_PvMatrix: {
+                        value: orbit.getPvMatrix().elements,
+                        type: 'uniformMatrix4fv'
+                    },
+                    u_Eye: {
+                        value: Object.values(camera.position),
+                        type: 'uniform3fv'
+                    },
+                    u_LightPositions: {
+                        value: lightPositions,
+                        type: 'uniform3fv'
+                    },
+                    u_LightColors: {
+                        value: lightColors,
+                        type: 'uniform3fv'
+                    }
+                });
+            }
+        });
+        
+        // 清除冲区
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        
+        scene.draw();
+        
+        requestAnimationFrame(animate);
+    }
+
+    // 添加动画相关变量
+    let time = 0;
+    const lightSpeed = 0.02;
+    const lightRadius = 5;
+  </script>
+</body>
+
+</html>
