@@ -8,15 +8,14 @@ export class Light {
   constructor(position, color) {
     this.position = position instanceof Vector3 ? position : new Vector3(...position)
     this.color = color
-    this.visible = false  // 默认不可见
   }
 
   createVisualizer(scene) {
-    if (!scene || !scene.gl) return null
-
-    // 减小光源球体的尺寸
-    const sphere = new Sphere(0.1, 12, 12)
-    const visualizer = new Obj3D({
+    // 创建一个小球体来表示光源
+    const sphere = new Sphere(0.3, 16, 16);  // 光源球体的尺寸
+    
+    // 创建发光材质的球体
+    const lightObj = new Obj3D({
       geo: new Geo({
         data: {
           a_Position: {
@@ -33,33 +32,25 @@ export class Light {
         programName: 'Emissive',
         data: {
           u_PvMatrix: {
-            value: new Matrix4().elements,
+            value: new Matrix4().elements,  // 初始值，会在渲染循环中更新
             type: 'uniformMatrix4fv'
           },
           u_ModelMatrix: {
-            value: new Matrix4()
-              .setPosition(this.position.x, this.position.y, this.position.z)
-              .elements,
+            value: new Matrix4().setPosition(this.position.x, this.position.y, this.position.z).elements,
             type: 'uniformMatrix4fv'
           },
           u_EmissiveColor: {
-            value: this.color.map(c => c/1600),  // 降低发光强度
+            value: this.color.map(c => c/200),  // 增加发光球体的亮度以便更容易看到
             type: 'uniform3fv'
           },
           u_Intensity: {
-            value: 1.0,  // 降低整体强度
+            value: 2.0,  // 降低整体发光强度
             type: 'uniform1f'
           }
         }
       })
-    })
+    });
 
-    // 设置初始可见性
-    visualizer.visible = this.visible
-    return visualizer
-  }
-
-  setVisible(visible) {
-    this.visible = visible
+    return lightObj;
   }
 } 

@@ -226,25 +226,10 @@
 
     // 定义光源
     let lights = [
-      // 主光源 - 顶部中央
+      // 主光源 - 顶部中央偏前
       new Light(
-        new Vector3(0, 9.5, 0),
-        [1200, 1200, 1200]  // 增加主光源强度
-      ),
-      // 前方补光
-      new Light(
-        new Vector3(0, 8, -9.5),
-        [600, 600, 600]  // 增加补光强度
-      ),
-      // 左侧暖色补光
-      new Light(
-        new Vector3(-9.5, 8, 0),
-        [800, 600, 400]  // 增加暖色调光源强度
-      ),
-      // 右侧冷色补光
-      new Light(
-        new Vector3(9.5, 8, 0),
-        [400, 600, 800]  // 增加冷色调光源强度
+        new Vector3(0, 9.5, -3),
+        [400, 400, 400]  // 降低光源强度
       )
     ]
     
@@ -309,9 +294,9 @@
         checkReady();
       });
 
-      // 为每个光源创建可视化球体
+      // 为每个光源创建可视化对象
       lights.forEach(light => {
-        const visualizer = light.createVisualizer(scene);
+        const visualizer = light.createVisualizer();
         if (visualizer) {
           scene.add(visualizer);
         }
@@ -404,11 +389,11 @@
               type: 'uniformMatrix4fv'
             },
             u_WallTex: {
-              value: 0,
+              value: 0,  // 墙壁使用纹理单元0
               type: 'uniform1i'
             },
             u_FloorTex: {
-              value: 1,
+              value: 1,  // 地板使用纹理单元1
               type: 'uniform1i'
             }
           },
@@ -416,64 +401,8 @@
         })
       }))
 
-      // 创建球
-      const spheres = [
-        // 金属球
-        { 
-          position: [-4, 0.8, -4], 
-          color: [0.8, 0.3, 0.3],
-          metallic: 0.9,    // 金属材质
-          roughness: 0.2
-        }
-      ];
-
-      spheres.forEach(({ position, color, metallic, roughness }) => {
-        const sphere = new Sphere(0.8, 24, 24)
-        scene.add(new Obj3D({
-          geo: new Geo({
-            data: {
-              a_Position: {
-                array: new Float32Array(sphere.vertices),
-                size: 3
-              },
-              a_Normal: {
-                array: new Float32Array(sphere.normals),
-                size: 3
-              }
-            },
-            index: {
-              array: new Uint16Array(sphere.indexes)
-            }
-          }),
-          mat: new Mat({
-            program: 'Main',
-            programName: 'Main',
-            data: {
-              ...basicMaterial.data,
-              u_ModelMatrix: {
-                value: new Matrix4().setPosition(...position).elements,
-                type: 'uniformMatrix4fv'
-              },
-              u_Color: {
-                value: color,
-                type: 'uniform3fv'
-              },
-              u_Metallic: {
-                value: metallic,
-                type: 'uniform1f'
-              },
-              u_Roughness: {
-                value: roughness,
-                type: 'uniform1f'
-              }
-            },
-            mode: 'TRIANGLES'
-          })
-        }))
-      })
-
       // 创建玻璃球
-      const glassSphere = new Sphere(0.8, 32, 32)
+      const glassSphere = new Sphere(1.2, 32, 32)
       scene.add(new Obj3D({
         geo: new Geo({
           data: {
@@ -496,12 +425,12 @@
           data: {
             ...basicMaterial.data,
             u_ModelMatrix: {
-              value: new Matrix4().setPosition(4, 0.8, 4).elements,
+              value: new Matrix4().setPosition(4, 1.2, 4).elements,
               type: 'uniformMatrix4fv'
             },
             u_NormalMatrix: {
               value: new Matrix4()
-                .makeTranslation(4, 0.8, 4)
+                .makeTranslation(4, 1.2, 4)
                 .invert()
                 .transpose()
                 .elements,
@@ -530,7 +459,7 @@
       // 设置纹理参数
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1);
       
-      // 创建墙壁纹理
+      // 创建墙壁纹理（纹理单元0）
       const wallTexture = gl.createTexture();
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, wallTexture);
@@ -540,7 +469,7 @@
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
       
-      // 创建地板纹理
+      // 创建地板纹理（纹理单元1）
       const floorTexture = gl.createTexture();
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, floorTexture);
@@ -553,11 +482,11 @@
       // 设置纹理
       const textureUniforms = {
           u_WallTex: {
-              value: 0,
+              value: 0,  // 墙壁使用纹理单元0
               type: 'uniform1i'
           },
           u_FloorTex: {
-              value: 1,
+              value: 1,  // 地板使用纹理单元1
               type: 'uniform1i'
           }
       };
@@ -570,15 +499,16 @@
       
       // 添加一些装饰性物体
       const decorations = [
-        // 漂浮的金属环
+        // 漂浮的金属环 - 移到房间左前方
         { 
-          geometry: new Torus(0.5, 0.2, 32, 32),
-          position: [2, 3.5, 2],
+          geometry: new Torus(0.8, 0.3, 32, 32),
+          position: [-6, 5.5, -6],
           rotation: [Math.PI/4, 0, Math.PI/6],
           material: {
             metallic: 0.9,
             roughness: 0.2,
-            color: [0.98, 0.8, 0.6] // 玫瑰金色
+            color: [0.98, 0.8, 0.6], // 玫瑰金色
+            useTexture: false
           },
           animation: {
             type: 'float',
@@ -586,44 +516,47 @@
             frequency: 1.2
           }
         },
-        // 漂浮的水晶体（八面体）
+        // 漂浮的水晶体（八面体）- 移到房间右后方
         {
-          geometry: new Box(0.8, 0.8, 0.8),
-          position: [-2, 4.2, 3],
+          geometry: new Box(1.2, 1.2, 1.2),
+          position: [7, 6.2, 6],
           rotation: [Math.PI/4, Math.PI/4, 0],
           material: {
             metallic: 0.3,
             roughness: 0.1,
-            color: [0.4, 0.8, 1.0] // 蓝色水晶
+            color: [0.4, 0.8, 1.0], // 蓝色水晶
+            useTexture: false
           },
           animation: {
             type: 'rotate',
             speed: 0.01
           }
         },
-        // 漂浮的发光球
+        // 漂浮的发光球 - 移到房间右前方
         {
-          geometry: new Sphere(0.4, 32, 32),
-          position: [3, 2.8, -2],
+          geometry: new Sphere(0.6, 32, 32),
+          position: [6, 4.8, -7],
           material: {
             metallic: 0.0,
             roughness: 0.0,
-            color: [1.0, 0.6, 0.2] // 橙色
+            color: [1.0, 0.6, 0.2], // 橙色
+            useTexture: false
           },
           animation: {
             type: 'pulse',
             frequency: 1.5
           }
         },
-        // 漂浮的金属立方体
+        // 漂浮的金属立方体 - 移到房间左后方
         {
-          geometry: new Box(0.6, 0.6, 0.6),
-          position: [-1, 5, -3],
+          geometry: new Box(0.9, 0.9, 0.9),
+          position: [-7, 7, 7],
           rotation: [0, Math.PI/6, Math.PI/6],
           material: {
             metallic: 1.0,
             roughness: 0.1,
-            color: [0.7, 0.7, 0.8] // 银色
+            color: [0.7, 0.7, 0.8], // 银色
+            useTexture: false
           },
           animation: {
             type: 'float',
@@ -653,6 +586,10 @@
               a_Normal: {
                 array: new Float32Array(geometry.normals),
                 size: 3
+              },
+              a_TextureType: {
+                array: new Float32Array(geometry.vertices.length / 3).fill(2.0),  // 使用纯色
+                size: 1
               }
             },
             index: {
@@ -663,7 +600,6 @@
             program: 'Main',
             programName: 'Main',
             data: {
-              ...basicMaterial.data,
               u_ModelMatrix: {
                 value: modelMatrix.elements,
                 type: 'uniformMatrix4fv'
@@ -679,8 +615,25 @@
               u_Roughness: {
                 value: material.roughness,
                 type: 'uniform1f'
+              },
+              u_Eye: {
+                value: Object.values(camera.position),
+                type: 'uniform3fv'
+              },
+              u_LightPositions: {
+                value: lightPositions,
+                type: 'uniform3fv'
+              },
+              u_LightColors: {
+                value: lightColors,
+                type: 'uniform3fv'
+              },
+              u_PvMatrix: {
+                value: orbit.getPvMatrix().elements,
+                type: 'uniformMatrix4fv'
               }
-            }
+            },
+            mode: 'TRIANGLES'
           })
         });
 
@@ -939,12 +892,12 @@
       // 创建并添加灯具
       const lamps = [
         // 中央吊灯
-        ...createCeilingLamp([0, 9.5, 0], [800, 800, 800]),
+        ...createCeilingLamp([0, 9.5, -3], [400, 400, 400]),  // 降低吊灯强度
         
-        // 壁灯
-        ...createWallLamp([-9.5, 8, 0], [0, Math.PI/2, 0], [600, 500, 400]),
-        ...createWallLamp([9.5, 8, 0], [0, -Math.PI/2, 0], [400, 500, 600]),
-        ...createWallLamp([0, 8, -9.5], [0, 0, 0], [400, 400, 400])
+        // 装饰性壁灯（不产生实际光照）
+        ...createWallLamp([-9.5, 8, 0], [0, Math.PI/2, 0], [100, 75, 50]),
+        ...createWallLamp([9.5, 8, 0], [0, -Math.PI/2, 0], [50, 75, 100]),
+        ...createWallLamp([0, 8, -9.5], [0, 0, 0], [75, 75, 75])
       ];
 
       lamps.forEach(lamp => scene.add(lamp));
@@ -964,13 +917,14 @@
             requestAnimationFrame(animate);
             return;
         }
+        
         // 更新时间
         time += 0.016;
         
         // 更新相机位置
         updateCameraPosition();
         
-        // 更新轨道控制器
+        // ���新轨道控制器
         orbit.update();
 
         // 更新光照数据
@@ -979,45 +933,6 @@
         lights.forEach(light => {
             lightPositions.push(...light.position);
             lightColors.push(...light.color.map(x => x/800));
-        });
-
-        // 更新场景中所有对象的材质数据
-        scene.children.forEach(obj => {
-            if (obj.mat) {
-                const data = {
-                    u_PvMatrix: {
-                        value: orbit.getPvMatrix().elements,
-                        type: 'uniformMatrix4fv'
-                    },
-                    u_Eye: {
-                        value: Object.values(camera.position),
-                        type: 'uniform3fv'
-                    },
-                    u_LightPositions: {
-                        value: lightPositions,
-                        type: 'uniform3fv'
-                    },
-                    u_LightColors: {
-                        value: lightColors,
-                        type: 'uniform3fv'
-                    }
-                };
-
-                // 如果是玻璃材质，更新法线矩阵
-                if (obj.mat.programName === 'Glass') {
-                    const modelMatrix = new Matrix4().fromArray(obj.mat.data.u_ModelMatrix.value);
-                    data.u_NormalMatrix = {
-                        value: new Matrix4()
-                            .copy(modelMatrix)
-                            .invert()
-                            .transpose()
-                            .elements,
-                        type: 'uniformMatrix4fv'
-                    };
-                }
-
-                Object.assign(obj.mat.data, data);
-            }
         });
 
         // 更新动画物体
@@ -1048,16 +963,43 @@
             case 'pulse':
               // 脉冲发光动画
               const intensity = 1 + Math.sin(time * animation.frequency) * 0.3;
-              object.mat.data.u_Color.value = object.mat.data.u_Color.value.map(c => c * intensity);
+              object.mat.data.u_Color.value = material.color.map(c => c * intensity);
               break;
           }
           
           // 更新模型矩阵
           object.mat.data.u_ModelMatrix.value = modelMatrix.elements;
         });
-        
-        // 清除缓冲区
+
+        // 渲染主场景
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, canvas.width, canvas.height);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        
+        // 更新场景中所有对象的材质数据
+        scene.children.forEach(obj => {
+            if (obj.mat) {
+                const data = {
+                    u_PvMatrix: {
+                        value: orbit.getPvMatrix().elements,
+                        type: 'uniformMatrix4fv'
+                    },
+                    u_Eye: {
+                        value: Object.values(camera.position),
+                        type: 'uniform3fv'
+                    },
+                    u_LightPositions: {
+                        value: lightPositions,
+                        type: 'uniform3fv'
+                    },
+                    u_LightColors: {
+                        value: lightColors,
+                        type: 'uniform3fv'
+                    }
+                };
+                Object.assign(obj.mat.data, data);
+            }
+        });
         
         scene.draw();
         
@@ -1067,11 +1009,11 @@
     // 添加帮助信息显示功能
     function showHelp() {
       const helpText = `
-键盘控制说明：
+键控制说明：
   移动：
     W/S - 前进/后退
     A/D - 左右移动
-    Q/E - ���升/下降
+    Q/E - 上升/下降
     
   功能键：
     R - 重置相机位置
@@ -1080,7 +1022,7 @@
     C - 切换相机模式
     H - 显示/隐藏帮助
     
-  速度控制：
+  速度控制���
     Ctrl/Cmd + '+' - 增加移动速度
     Ctrl/Cmd + '-' - 减小移动速度
     
@@ -1125,6 +1067,53 @@
 
     // 在初始化时显示帮助信息
     window.addEventListener('load', showHelp);
+
+    // 创���阴影贴图
+    const SHADOW_MAP_SIZE = 2048;
+    const shadowFramebuffer = gl.createFramebuffer();
+    const shadowTexture = gl.createTexture();
+    
+    // 初始化阴影贴图纹理
+    gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
+    gl.texImage2D(
+      gl.TEXTURE_2D, 0, gl.RGBA,
+      SHADOW_MAP_SIZE, SHADOW_MAP_SIZE,
+      0, gl.RGBA, gl.UNSIGNED_BYTE, null
+    );
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    
+    // 创建深度缓冲区
+    const depthBuffer = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, depthBuffer);
+    gl.renderbufferStorage(
+      gl.RENDERBUFFER, gl.DEPTH_COMPONENT16,
+      SHADOW_MAP_SIZE, SHADOW_MAP_SIZE
+    );
+    
+    // 配置帧缓冲区
+    gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
+      gl.TEXTURE_2D, shadowTexture, 0
+    );
+    gl.framebufferRenderbuffer(
+      gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT,
+      gl.RENDERBUFFER, depthBuffer
+    );
+    
+    // 检查帧缓冲状态
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      console.error('Framebuffer is not complete:', status);
+    }
+    
+    // 置绑定
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, null);
   </script>
 </body>
 
