@@ -8,13 +8,15 @@ export class Light {
   constructor(position, color) {
     this.position = position instanceof Vector3 ? position : new Vector3(...position)
     this.color = color
+    this.visible = false  // 默认不可见
   }
 
   createVisualizer(scene) {
     if (!scene || !scene.gl) return null
 
-    const sphere = new Sphere(0.2, 16, 16)
-    return new Obj3D({
+    // 减小光源球体的尺寸
+    const sphere = new Sphere(0.1, 12, 12)
+    const visualizer = new Obj3D({
       geo: new Geo({
         data: {
           a_Position: {
@@ -41,15 +43,23 @@ export class Light {
             type: 'uniformMatrix4fv'
           },
           u_EmissiveColor: {
-            value: this.color.map(c => c/800),
+            value: this.color.map(c => c/1600),  // 降低发光强度
             type: 'uniform3fv'
           },
           u_Intensity: {
-            value: 2.0,
+            value: 1.0,  // 降低整体强度
             type: 'uniform1f'
           }
         }
       })
     })
+
+    // 设置初始可见性
+    visualizer.visible = this.visible
+    return visualizer
+  }
+
+  setVisible(visible) {
+    this.visible = visible
   }
 } 

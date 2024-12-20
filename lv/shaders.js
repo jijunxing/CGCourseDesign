@@ -128,8 +128,19 @@ export const emissiveShaders = {
     uniform vec3 u_EmissiveColor;
     uniform float u_Intensity;
     void main(){
-      vec3 color = u_EmissiveColor * u_Intensity;
+      // 增强发光颜色
+      vec3 color = u_EmissiveColor * u_Intensity * 2.0;
+      
+      // 添加发光中心的亮度
+      float brightness = 1.2;
+      color *= brightness;
+      
+      // HDR色调映射
       color = color / (color + vec3(1.0));
+      
+      // 提高最小亮度以确保始终可见
+      color = max(color, vec3(0.6));
+      
       gl_FragColor = vec4(color, 1.0);
     }
   `
@@ -152,31 +163,23 @@ export const mainShaders = {
     attribute vec3 a_Normal;
     attribute vec2 a_TexCoord;
     attribute float a_TextureType;
-    attribute vec3 a_Tangent;
     
     uniform mat4 u_ModelMatrix;
     uniform mat4 u_PvMatrix;
-    uniform mat4 u_NormalMatrix;
     
     varying vec3 v_Position;
     varying vec3 v_Normal;
     varying vec2 v_TexCoord;
     varying float v_TextureType;
-    varying mat3 v_TBN;
     
     void main() {
       vec4 worldPosition = u_ModelMatrix * vec4(a_Position, 1.0);
       gl_Position = u_PvMatrix * worldPosition;
       
       v_Position = worldPosition.xyz;
-      v_Normal = normalize(mat3(u_NormalMatrix) * a_Normal);
+      v_Normal = normalize(mat3(u_ModelMatrix) * a_Normal);
       v_TexCoord = a_TexCoord;
       v_TextureType = a_TextureType;
-      
-      vec3 T = normalize(mat3(u_NormalMatrix) * a_Tangent);
-      vec3 N = v_Normal;
-      vec3 B = cross(N, T);
-      v_TBN = mat3(T, B, N);
     }
   `,
   fs: `
@@ -198,6 +201,43 @@ export const mainShaders = {
     
     const float PI = 3.14159265359;
     
+    // PBR函数
+    float DistributionGGX(vec3 N, vec3 H, float roughness) {
+      float a = roughness * roughness;
+      float a2 = a * a;
+      float NdotH = max(dot(N, H), 0.0);
+      float NdotH2 = NdotH * NdotH;
+      
+      float nom   = a2;
+      float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+      denom = PI * denom * denom;
+      
+      return nom / denom;
+    }
+    
+    float GeometrySchlickGGX(float NdotV, float roughness) {
+      float r = (roughness + 1.0);
+      float k = (r * r) / 8.0;
+      
+      float nom   = NdotV;
+      float denom = NdotV * (1.0 - k) + k;
+      
+      return nom / denom;
+    }
+    
+    float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
+      float NdotV = max(dot(N, V), 0.0);
+      float NdotL = max(dot(N, L), 0.0);
+      float ggx2 = GeometrySchlickGGX(NdotV, roughness);
+      float ggx1 = GeometrySchlickGGX(NdotL, roughness);
+      
+      return ggx1 * ggx2;
+    }
+    
+    vec3 fresnelSchlick(float cosTheta, vec3 F0) {
+      return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+    }
+    
     void main() {
       vec4 texColor;
       if(v_TextureType < 0.5) {
@@ -209,42 +249,46 @@ export const mainShaders = {
       vec3 N = normalize(v_Normal);
       vec3 V = normalize(u_Eye - v_Position);
       
-      // 增加环境光强度
-      vec3 ambient = vec3(0.15) * texColor.rgb;
-      vec3 finalColor = ambient;
+      // 基础反射率
+      vec3 F0 = vec3(0.04); 
+      F0 = mix(F0, u_Color, u_Metallic);
       
-      // 光照计算
+      // 反射方程
+      vec3 Lo = vec3(0.0);
       for(int i = 0; i < 4; i++) {
         vec3 L = normalize(u_LightPositions[i] - v_Position);
         vec3 H = normalize(V + L);
-        
         float distance = length(u_LightPositions[i] - v_Position);
-        // 减小衰减强度
-        float attenuation = 1.0 / (1.0 + 0.045 * distance + 0.0075 * distance * distance);
+        float attenuation = 1.0 / (1.0 + 0.09 * distance + 0.032 * distance * distance);  // 降低衰减
+        vec3 radiance = u_LightColors[i] * attenuation * 1.5;  // 增强光照强度
         
-        float NdotL = max(dot(N, L), 0.0);
-        float NdotH = max(dot(N, H), 0.0);
+        // Cook-Torrance BRDF
+        float NDF = DistributionGGX(N, H, u_Roughness);   
+        float G = GeometrySmith(N, V, L, u_Roughness);    
+        vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+           
+        vec3 numerator = NDF * G * F; 
+        float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
+        vec3 specular = numerator / denominator;
         
-        // 增强漫反射
-        vec3 diffuse = NdotL * u_LightColors[i] * 0.8;
+        vec3 kS = F;
+        vec3 kD = vec3(1.0) - kS;
+        kD *= 1.0 - u_Metallic;
         
-        // 调整镜面反射
-        float shininess = mix(32.0, 4.0, u_Roughness);
-        float specular = pow(NdotH, shininess) * (1.0 - u_Roughness) * 0.3;
-        
-        finalColor += (diffuse + specular) * attenuation * texColor.rgb;
-      }
-      
-      // 调整金属度混合
-      finalColor = mix(finalColor, u_Color * finalColor, u_Metallic);
-      
-      // 提亮整体场景
-      finalColor *= 1.1;
-      
-      // gamma校正
-      finalColor = pow(finalColor, vec3(1.0/2.2));
-      
-      gl_FragColor = vec4(finalColor, texColor.a);
+        float NdotL = max(dot(N, L), 0.0);        
+        Lo += (kD * u_Color / PI + specular) * radiance * NdotL;
+    }
+    
+    // 增强环境光
+    vec3 ambient = vec3(0.06) * u_Color * texColor.rgb;  // 提高环境光强度
+    vec3 color = ambient + Lo;
+    
+    // HDR色调映射
+    color = color / (color + vec3(1.0));
+    // gamma校正
+    color = pow(color, vec3(1.0/2.2)); 
+    
+    gl_FragColor = vec4(color, texColor.a);
     }
   `
 }
