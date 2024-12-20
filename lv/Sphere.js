@@ -18,6 +18,7 @@ export default class Sphere{
     this.vertices=[]
     this.normals=[]
     this.indexes = []
+    this.uv = []
     this.count=0
     this.init()
   }
@@ -31,55 +32,80 @@ export default class Sphere{
     const thetaSize = Math.PI * 2 / widthSegments
     const phiSize = Math.PI / heightSegments
 
-    // 顶点集合，先内置北极点
+    // 顶点集合，北极点
     const vertices = [0, r, 0]
-    // 法线集合，先内置北极法线
+    // 法线集合，北极点法线
     const normals = [0, 1, 0]
+    // UV坐标，北极点
+    const uv = []
+    // 为北极点添加多个UV坐标，以避免纹理扭曲
+    for (let i = 0; i <= widthSegments; i++) {
+      uv.push(i / widthSegments, 1)
+    }
+
     // 顶点索引集合
     const indexes = []
-    // 最后一个顶点索引
     const lastInd = this.count-1
-    // 逐行列遍历
-    for (let y = 0; y < heightSegments; y++) {
-      // 球坐标垂直分量
+
+    // 生成球体的主体部分
+    for (let y = 1; y < heightSegments; y++) {
       const phi = phiSize * y
-      for (let x1 = 0; x1 < widthSegments; x1++) {
-        // x1后的两列
-        const x2 = x1 + 1
-        const x3 = x2 % widthSegments + 1
-        if (y) {
-          // 计算顶点和法线
-          spherical.set(r, phi, thetaSize * x1)
-          const vertice = new Vector3().setFromSpherical(spherical)
-          vertices.push(...vertice)
-          normals.push(...vertice.normalize())
-        } else {
-          // 第一行的三角网
-          indexes.push(0, x2, x3)
-        }
-        if (y < heightSegments - 2) {
-          // 一个矩形格子的左上lt、右上rt、左下lb、右下rb点
-          const lt = y * widthSegments + x2
-          const rt = y * widthSegments + x3
-          const lb = (y + 1) * widthSegments + x2
-          const rb = (y + 1) * widthSegments + x3
-          // 第一行和最后一行中间的三角网
-          indexes.push(lb, rb, lt, lt, rb, rt)
-          if (y === heightSegments - 3) {
-            // 最后一行的三角网
-            indexes.push(lastInd, rb, lb)
+      const v = 1 - (y / heightSegments)
+      
+      for (let x = 0; x <= widthSegments; x++) {
+        const theta = thetaSize * x
+        const u = x / widthSegments
+
+        // 计算顶点位置
+        spherical.set(r, phi, theta)
+        const vertice = new Vector3().setFromSpherical(spherical)
+        vertices.push(...vertice)
+        normals.push(...vertice.clone().normalize())
+        
+        // 添加UV坐标
+        uv.push(u, v)
+
+        // 创建三角形索引
+        if (x < widthSegments && y < heightSegments - 1) {
+          const a = y * (widthSegments + 1) + x
+          const b = a + 1
+          const c = a + widthSegments + 1
+          const d = c + 1
+
+          // 添加两个三角形
+          if (y === 1) {
+            // 连接到北极点的三角形
+            indexes.push(0, a + 1, a)
           }
+          indexes.push(a, b, c)
+          indexes.push(b, d, c)
         }
       }
     }
-    // 南极顶点
-    vertices.push(0, -r, 0)
-    // 南极法线
-    normals.push(0, -1, 0)
 
-    this.vertices=new Float32Array(vertices)
-    this.normals=new Float32Array(normals)
-    this.indexes=new Uint16Array(indexes)
+    // 南极点
+    vertices.push(0, -r, 0)
+    normals.push(0, -1, 0)
+    
+    // 为南极点添加多个UV坐标
+    for (let i = 0; i <= widthSegments; i++) {
+      uv.push(i / widthSegments, 0)
+    }
+
+    // 添加连接到南极点的三角形
+    const baseIndex = (heightSegments - 1) * (widthSegments + 1)
+    for (let x = 0; x < widthSegments; x++) {
+      indexes.push(
+        baseIndex + x,
+        lastInd,
+        baseIndex + x + 1
+      )
+    }
+
+    this.vertices = new Float32Array(vertices)
+    this.normals = new Float32Array(normals)
+    this.indexes = new Uint16Array(indexes)
+    this.uv = new Float32Array(uv)
   }
 
   getTriangles() {
