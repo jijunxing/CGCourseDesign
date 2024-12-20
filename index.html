@@ -45,6 +45,17 @@
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
+    // 加动画相关变量
+    let time = 0;
+    const lightSpeed = 0.005;
+    const lightRadius = 2;
+    // 存储所有需要动画的物体
+    const animatedObjects = [];
+
+    // 在文件开头添加这些矩阵对象
+    const tempMatrix4 = new Matrix4();
+    const normalMatrix = new Matrix4();
+
     // 目标点
     const target = new Vector3(0, 6, -10)
     //视点
@@ -92,7 +103,7 @@
     });
 
     // 键盘控制
-    const moveSpeed = 0.3;
+    const moveSpeed = 0.1;
     const keysPressed = new Set();
     
     window.addEventListener('keydown', (e) => {
@@ -218,22 +229,22 @@
       // 主光源 - 顶部中央
       new Light(
         new Vector3(0, 9.5, 0),
-        [800, 800, 800]  // 增加主光源强度
+        [1200, 1200, 1200]  // 增加主光源强度
       ),
       // 前方补光
       new Light(
         new Vector3(0, 8, -9.5),
-        [400, 400, 400]  // 增加补光强度
+        [600, 600, 600]  // 增加补光强度
       ),
       // 左侧暖色补光
       new Light(
         new Vector3(-9.5, 8, 0),
-        [600, 500, 400]  // 增加暖色调光源强度
+        [800, 600, 400]  // 增加暖色调光源强度
       ),
       // 右侧冷色补光
       new Light(
         new Vector3(9.5, 8, 0),
-        [400, 500, 600]  // 增加冷色调光源强度
+        [400, 600, 800]  // 增加冷色调光源强度
       )
     ]
     
@@ -407,12 +418,16 @@
 
       // 创建球
       const spheres = [
-        { position: [-4, 0.8, -4], color: [0.8, 0.3, 0.3] },
-        { position: [0, 0.8, 0], color: [0.3, 0.8, 0.3] },
-        { position: [4, 0.8, 4], color: [0.3, 0.3, 0.8] }
-      ]
+        // 金属球
+        { 
+          position: [-4, 0.8, -4], 
+          color: [0.8, 0.3, 0.3],
+          metallic: 0.9,    // 金属材质
+          roughness: 0.2
+        }
+      ];
 
-      spheres.forEach(({ position, color }) => {
+      spheres.forEach(({ position, color, metallic, roughness }) => {
         const sphere = new Sphere(0.8, 24, 24)
         scene.add(new Obj3D({
           geo: new Geo({
@@ -442,12 +457,59 @@
               u_Color: {
                 value: color,
                 type: 'uniform3fv'
+              },
+              u_Metallic: {
+                value: metallic,
+                type: 'uniform1f'
+              },
+              u_Roughness: {
+                value: roughness,
+                type: 'uniform1f'
               }
             },
             mode: 'TRIANGLES'
           })
         }))
       })
+
+      // 创建玻璃球
+      const glassSphere = new Sphere(0.8, 32, 32)
+      scene.add(new Obj3D({
+        geo: new Geo({
+          data: {
+            a_Position: {
+              array: new Float32Array(glassSphere.vertices),
+              size: 3
+            },
+            a_Normal: {
+              array: new Float32Array(glassSphere.normals),
+              size: 3
+            }
+          },
+          index: {
+            array: new Uint16Array(glassSphere.indexes)
+          }
+        }),
+        mat: new Mat({
+          program: 'Glass',
+          programName: 'Glass',
+          data: {
+            ...basicMaterial.data,
+            u_ModelMatrix: {
+              value: new Matrix4().setPosition(4, 0.8, 4).elements,
+              type: 'uniformMatrix4fv'
+            },
+            u_NormalMatrix: {
+              value: new Matrix4()
+                .makeTranslation(4, 0.8, 4)
+                .invert()
+                .transpose()
+                .elements,
+              type: 'uniformMatrix4fv'
+            }
+          }
+        })
+      }))
 
       // 添加光源可视化
       lights.forEach(light => {
@@ -506,84 +568,82 @@
           ...textureUniforms
       };
       
-      // 创建玻璃球
-      const glassSphere = new Sphere(0.8, 32, 32)
-      scene.add(new Obj3D({
-        geo: new Geo({
-          data: {
-            a_Position: {
-              array: new Float32Array(glassSphere.vertices),
-              size: 3
-            },
-            a_Normal: {
-              array: new Float32Array(glassSphere.normals),
-              size: 3
-            }
-          },
-          index: {
-            array: new Uint16Array(glassSphere.indexes)
-          }
-        }),
-        mat: new Mat({
-          program: 'Glass',
-          programName: 'Glass',
-          data: {
-            ...basicMaterial.data,
-            u_ModelMatrix: {
-              value: new Matrix4().setPosition(0, 0.8, -4).elements,
-              type: 'uniformMatrix4fv'
-            },
-            u_NormalMatrix: {
-              value: new Matrix4()
-                .makeTranslation(0, 0.8, -4)
-                .invert()
-                .transpose()
-                .elements,
-              type: 'uniformMatrix4fv'
-            }
-          }
-        })
-      }))
-
       // 添加一些装饰性物体
       const decorations = [
-        // 金属环
+        // 漂浮的金属环
         { 
           geometry: new Torus(0.5, 0.2, 32, 32),
-          position: [2, 1.2, 2],
+          position: [2, 3.5, 2],
           rotation: [Math.PI/4, 0, Math.PI/6],
           material: {
-            metallic: 0.9,    // 稍微降低金属度
-            roughness: 0.3,   // 增加一点粗糙度
-            color: [0.98, 0.8, 0.6] // 更亮的玫瑰金色
+            metallic: 0.9,
+            roughness: 0.2,
+            color: [0.98, 0.8, 0.6] // 玫瑰金色
+          },
+          animation: {
+            type: 'float',
+            amplitude: 0.3,
+            frequency: 1.2
           }
         },
-        // 木制立方体
+        // 漂浮的水晶体（八面体）
         {
           geometry: new Box(0.8, 0.8, 0.8),
-          position: [-2, 0.4, 3],
-          rotation: [0, Math.PI/6, 0],
+          position: [-2, 4.2, 3],
+          rotation: [Math.PI/4, Math.PI/4, 0],
           material: {
-            metallic: 0.1,    // 增加一点金属感
-            roughness: 0.7,   // 降低粗糙度
-            color: [0.8, 0.4, 0.2] // 更亮的木色
+            metallic: 0.3,
+            roughness: 0.1,
+            color: [0.4, 0.8, 1.0] // 蓝色水晶
+          },
+          animation: {
+            type: 'rotate',
+            speed: 0.01
           }
         },
-        // 大理石球
+        // 漂浮的发光球
         {
-          geometry: new Sphere(0.6, 32, 32),
-          position: [3, 0.6, -2],
+          geometry: new Sphere(0.4, 32, 32),
+          position: [3, 2.8, -2],
           material: {
-            metallic: 0.2,    // 增加一点金属感
-            roughness: 0.1,   // 保持光滑
-            color: [1.0, 1.0, 1.0] // 纯白色
+            metallic: 0.0,
+            roughness: 0.0,
+            color: [1.0, 0.6, 0.2] // 橙色
+          },
+          animation: {
+            type: 'pulse',
+            frequency: 1.5
+          }
+        },
+        // 漂浮的金属立方体
+        {
+          geometry: new Box(0.6, 0.6, 0.6),
+          position: [-1, 5, -3],
+          rotation: [0, Math.PI/6, Math.PI/6],
+          material: {
+            metallic: 1.0,
+            roughness: 0.1,
+            color: [0.7, 0.7, 0.8] // 银色
+          },
+          animation: {
+            type: 'float',
+            amplitude: 0.4,
+            frequency: 0.8
           }
         }
-      ]
+      ];
 
       // 添加装饰物
-      decorations.forEach(({ geometry, position, rotation = [0,0,0], material }) => {
-        scene.add(new Obj3D({
+      decorations.forEach(({ geometry, position, rotation = [0,0,0], material, animation }) => {
+        const modelMatrix = new Matrix4()
+          .setPosition(...position)
+          .multiply(
+            new Matrix4().makeRotationX(rotation[0])
+              .multiply(new Matrix4().makeRotationY(rotation[1]))
+              .multiply(new Matrix4().makeRotationZ(rotation[2]))
+          );
+
+        const obj = new Obj3D({
           geo: new Geo({
             data: {
               a_Position: {
@@ -605,15 +665,12 @@
             data: {
               ...basicMaterial.data,
               u_ModelMatrix: {
-                value: new Matrix4()
-                  .setPosition(...position)
-                  .multiply(
-                    new Matrix4().makeRotationX(rotation[0])
-                      .multiply(new Matrix4().makeRotationY(rotation[1]))
-                      .multiply(new Matrix4().makeRotationZ(rotation[2]))
-                  )
-                  .elements,
+                value: modelMatrix.elements,
                 type: 'uniformMatrix4fv'
+              },
+              u_Color: {
+                value: material.color,
+                type: 'uniform3fv'
               },
               u_Metallic: {
                 value: material.metallic,
@@ -622,15 +679,25 @@
               u_Roughness: {
                 value: material.roughness,
                 type: 'uniform1f'
-              },
-              u_Color: {
-                value: material.color,
-                type: 'uniform3fv'
               }
             }
           })
-        }))
-      })
+        });
+
+        // 存储动画相关信息
+        if (animation) {
+          animatedObjects.push({
+            object: obj,
+            animation,
+            basePosition: [...position],
+            baseRotation: [...rotation],
+            modelMatrix,
+            material
+          });
+        }
+
+        scene.add(obj);
+      });
 
       // 创建吊灯
       function createCeilingLamp(position, color) {
@@ -903,16 +970,9 @@
         // 更新相机位置
         updateCameraPosition();
         
-        // 始终更新轨道控制器
+        // 更新轨道控制器
         orbit.update();
-        
-        // 更新动态光源位置
-        lights.forEach((light, index) => {
-            const angle = time * lightSpeed + (index * Math.PI / 2);
-            light.position.x = Math.cos(angle) * lightRadius;
-            light.position.z = Math.sin(angle) * lightRadius;
-        });
-        
+
         // 更新光照数据
         const lightPositions = [];
         const lightColors = [];
@@ -920,7 +980,7 @@
             lightPositions.push(...light.position);
             lightColors.push(...light.color.map(x => x/800));
         });
-        
+
         // 更新场景中所有对象的材质数据
         scene.children.forEach(obj => {
             if (obj.mat) {
@@ -948,10 +1008,10 @@
                     const modelMatrix = new Matrix4().fromArray(obj.mat.data.u_ModelMatrix.value);
                     data.u_NormalMatrix = {
                         value: new Matrix4()
-                          .copy(modelMatrix)
-                          .invert()
-                          .transpose()
-                          .elements,
+                            .copy(modelMatrix)
+                            .invert()
+                            .transpose()
+                            .elements,
                         type: 'uniformMatrix4fv'
                     };
                 }
@@ -959,23 +1019,50 @@
                 Object.assign(obj.mat.data, data);
             }
         });
+
+        // 更新动画物体
+        animatedObjects.forEach(({ object, animation, basePosition, baseRotation, modelMatrix, material }) => {
+          switch (animation.type) {
+            case 'float':
+              // 上下漂浮动画
+              const floatOffset = Math.sin(time * animation.frequency) * animation.amplitude;
+              modelMatrix.setPosition(
+                basePosition[0],
+                basePosition[1] + floatOffset,
+                basePosition[2]
+              );
+              break;
+            
+            case 'rotate':
+              // 自转动画 - 使用初始旋转角度加上时间增量
+              modelMatrix
+                .setPosition(...basePosition)
+                .multiply(
+                  new Matrix4()
+                    .makeRotationX(baseRotation[0])
+                    .multiply(new Matrix4().makeRotationY(baseRotation[1] + time * animation.speed))
+                    .multiply(new Matrix4().makeRotationZ(baseRotation[2]))
+                );
+              break;
+            
+            case 'pulse':
+              // 脉冲发光动画
+              const intensity = 1 + Math.sin(time * animation.frequency) * 0.3;
+              object.mat.data.u_Color.value = object.mat.data.u_Color.value.map(c => c * intensity);
+              break;
+          }
+          
+          // 更新模型矩阵
+          object.mat.data.u_ModelMatrix.value = modelMatrix.elements;
+        });
         
-        // 清除冲区
+        // 清除缓冲区
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         
         scene.draw();
         
         requestAnimationFrame(animate);
     }
-
-    // 加动画相关变量
-    let time = 0;
-    const lightSpeed = 0.005;
-    const lightRadius = 2;
-
-    // 在文件开头添加这些矩阵对象
-    const tempMatrix4 = new Matrix4();
-    const normalMatrix = new Matrix4();
 
     // 添加帮助信息显示功能
     function showHelp() {
@@ -984,7 +1071,7 @@
   移动：
     W/S - 前进/后退
     A/D - 左右移动
-    Q/E - 上升/下降
+    Q/E - ���升/下降
     
   功能键：
     R - 重置相机位置
