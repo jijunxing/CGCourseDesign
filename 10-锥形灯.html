@@ -17,6 +17,7 @@
 
   <script type="module">
     import { createProgram, imgPromise } from './lv/Utils.js';
+    import { mainShaders, glassShaders, emissiveShaders } from './lv/shaders.js';
     import {
       Matrix4, PerspectiveCamera, Vector3
     } from 'https://unpkg.com/three/build/three.module.js';
@@ -25,10 +26,15 @@
     import { Light } from './lv/Light.js'
     import Sphere from './lv/Sphere.js'
     import Room from './lv/Room.js'
+    import Box from './lv/Box.js'
+    import Torus from './lv/Torus.js'
     import { gouraudShading } from './lv/ShadingFrequency.js'
     import Mat from './lv/Mat.js'
     import Geo from './lv/Geo.js'
     import Obj3D from './lv/Obj3D.js'
+    import Cone from './lv/Cone.js'
+    import Cylinder from './lv/Cylinder.js'
+    import HemiSphere from './lv/HemiSphere.js'
 
     const canvas = document.getElementById('canvas');
     canvas.width = window.innerWidth;
@@ -36,6 +42,8 @@
     let gl = canvas.getContext('webgl');
     gl.clearColor(0.1, 0.1, 0.1, 1);
     gl.enable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     // 目标点
     const target = new Vector3(0, 6, -10)
@@ -150,11 +158,27 @@
     }
 
     // 定义光源
-    const lights = [
-      new Light([-6, 8, -6], [400, 300, 200]),  // 暖白光
-      new Light([6, 8, -6], [200, 300, 400]),   // 冷白光
-      new Light([-6, 8, 2], [400, 200, 200]),   // 暖光
-      new Light([6, 8, 2], [200, 200, 400])     // 冷光
+    let lights = [
+      // 主光源 - 顶部中央
+      new Light(
+        new Vector3(0, 9.5, 0),
+        [800, 800, 800]  // 增加主光源强度
+      ),
+      // 前方补光
+      new Light(
+        new Vector3(0, 8, -9.5),
+        [400, 400, 400]  // 增加补光强度
+      ),
+      // 左侧暖色补光
+      new Light(
+        new Vector3(-9.5, 8, 0),
+        [600, 500, 400]  // 增加暖色调光源强度
+      ),
+      // 右侧冷色补光
+      new Light(
+        new Vector3(9.5, 8, 0),
+        [400, 500, 600]  // 增加冷色调光源强度
+      )
     ]
     
     // 光照数据
@@ -218,6 +242,54 @@
         checkReady();
       });
 
+      // 为每个光源创建可视化球体
+      lights.forEach(light => {
+        const visualizer = light.createVisualizer(scene);
+        if (visualizer) {
+          scene.add(visualizer);
+        }
+      });
+
+      // 创建光照数据
+      const lightPositions = [];
+      const lightColors = [];
+      lights.forEach(light => {
+        lightPositions.push(...light.position);
+        lightColors.push(...light.color.map(x => x/800));
+      });
+
+      // 基础光照数据
+      const lightData = {
+        u_LightPositions: {
+          value: lightPositions,
+          type: 'uniform3fv'
+        },
+        u_LightColors: {
+          value: lightColors,
+          type: 'uniform3fv'
+        }
+      };
+
+      // 相机数据
+      const cameraData = {
+        u_Eye: {
+          value: Object.values(camera.position),
+          type: 'uniform3fv'
+        },
+        u_PvMatrix: {
+          value: orbit.getPvMatrix().elements,
+          type: 'uniformMatrix4fv'
+        }
+      };
+
+      // 基础材质数据
+      const matData = {
+        u_ModelMatrix: {
+          value: new Matrix4().elements,
+          type: 'uniformMatrix4fv'
+        }
+      };
+
       // 基础材质
       const basicMaterial = {
         program: 'Main',
@@ -227,7 +299,7 @@
           ...lightData,
           ...cameraData
         }
-      }
+      };
 
       // 创建房间
       const room = new Room(20, 12, 20)
@@ -277,7 +349,7 @@
         })
       }))
 
-      // 创建球体
+      // 创建球
       const spheres = [
         { position: [-4, 0.8, -4], color: [0.8, 0.3, 0.3] },
         { position: [0, 0.8, 0], color: [0.3, 0.8, 0.3] },
@@ -378,6 +450,382 @@
           ...textureUniforms
       };
       
+      // 创建玻璃球
+      const glassSphere = new Sphere(0.8, 32, 32)
+      scene.add(new Obj3D({
+        geo: new Geo({
+          data: {
+            a_Position: {
+              array: new Float32Array(glassSphere.vertices),
+              size: 3
+            },
+            a_Normal: {
+              array: new Float32Array(glassSphere.normals),
+              size: 3
+            }
+          },
+          index: {
+            array: new Uint16Array(glassSphere.indexes)
+          }
+        }),
+        mat: new Mat({
+          program: 'Glass',
+          programName: 'Glass',
+          data: {
+            ...basicMaterial.data,
+            u_ModelMatrix: {
+              value: new Matrix4().setPosition(0, 0.8, -4).elements,
+              type: 'uniformMatrix4fv'
+            },
+            u_NormalMatrix: {
+              value: new Matrix4()
+                .makeTranslation(0, 0.8, -4)
+                .invert()
+                .transpose()
+                .elements,
+              type: 'uniformMatrix4fv'
+            }
+          }
+        })
+      }))
+
+      // 添加一些装饰性物体
+      const decorations = [
+        // 金属环
+        { 
+          geometry: new Torus(0.5, 0.2, 32, 32),
+          position: [2, 1.2, 2],
+          rotation: [Math.PI/4, 0, Math.PI/6],
+          material: {
+            metallic: 0.9,    // 稍微降低金属度
+            roughness: 0.3,   // 增加一点粗糙度
+            color: [0.98, 0.8, 0.6] // 更亮的玫瑰金色
+          }
+        },
+        // 木制立方体
+        {
+          geometry: new Box(0.8, 0.8, 0.8),
+          position: [-2, 0.4, 3],
+          rotation: [0, Math.PI/6, 0],
+          material: {
+            metallic: 0.1,    // 增加一点金属感
+            roughness: 0.7,   // 降低粗糙度
+            color: [0.8, 0.4, 0.2] // 更亮的木色
+          }
+        },
+        // 大理石球
+        {
+          geometry: new Sphere(0.6, 32, 32),
+          position: [3, 0.6, -2],
+          material: {
+            metallic: 0.2,    // 增加一点金属感
+            roughness: 0.1,   // 保持光滑
+            color: [1.0, 1.0, 1.0] // 纯白色
+          }
+        }
+      ]
+
+      // 添加装饰物
+      decorations.forEach(({ geometry, position, rotation = [0,0,0], material }) => {
+        scene.add(new Obj3D({
+          geo: new Geo({
+            data: {
+              a_Position: {
+                array: new Float32Array(geometry.vertices),
+                size: 3
+              },
+              a_Normal: {
+                array: new Float32Array(geometry.normals),
+                size: 3
+              }
+            },
+            index: {
+              array: new Uint16Array(geometry.indexes)
+            }
+          }),
+          mat: new Mat({
+            program: 'Main',
+            programName: 'Main',
+            data: {
+              ...basicMaterial.data,
+              u_ModelMatrix: {
+                value: new Matrix4()
+                  .setPosition(...position)
+                  .multiply(
+                    new Matrix4().makeRotationX(rotation[0])
+                      .multiply(new Matrix4().makeRotationY(rotation[1]))
+                      .multiply(new Matrix4().makeRotationZ(rotation[2]))
+                  )
+                  .elements,
+                type: 'uniformMatrix4fv'
+              },
+              u_Metallic: {
+                value: material.metallic,
+                type: 'uniform1f'
+              },
+              u_Roughness: {
+                value: material.roughness,
+                type: 'uniform1f'
+              },
+              u_Color: {
+                value: material.color,
+                type: 'uniform3fv'
+              }
+            }
+          })
+        }))
+      })
+
+      // 创建吊灯
+      function createCeilingLamp(position, color) {
+        const lampGroup = [];
+        
+        // 灯罩（圆锥体）
+        const lampShade = new Cone(0.6, 0.2, 1.2, 32);
+        lampGroup.push(new Obj3D({
+          geo: new Geo({
+            data: {
+              a_Position: {
+                array: new Float32Array(lampShade.vertices),
+                size: 3
+              },
+              a_Normal: {
+                array: new Float32Array(lampShade.normals),
+                size: 3
+              }
+            },
+            index: {
+              array: new Uint16Array(lampShade.indexes)
+            }
+          }),
+          mat: new Mat({
+            program: 'Main',
+            programName: 'Main',
+            data: {
+              ...basicMaterial.data,
+              u_ModelMatrix: {
+                value: new Matrix4()
+                  .setPosition(...position)
+                  .elements,
+                type: 'uniformMatrix4fv'
+              },
+              u_Metallic: {
+                value: 0.9,
+                type: 'uniform1f'
+              },
+              u_Roughness: {
+                value: 0.1,
+                type: 'uniform1f'
+              },
+              u_Color: {
+                value: [0.9, 0.9, 0.9],
+                type: 'uniform3fv'
+              }
+            }
+          })
+        }));
+
+        // 发光体
+        const lightBulb = new Sphere(0.2, 16, 16);
+        lampGroup.push(new Obj3D({
+          geo: new Geo({
+            data: {
+              a_Position: {
+                array: new Float32Array(lightBulb.vertices),
+                size: 3
+              }
+            },
+            index: {
+              array: new Uint16Array(lightBulb.indexes)
+            }
+          }),
+          mat: new Mat({
+            program: 'Emissive',
+            programName: 'Emissive',
+            data: {
+              ...basicMaterial.data,
+              u_ModelMatrix: {
+                value: new Matrix4()
+                  .setPosition(position[0], position[1] - 0.2, position[2])
+                  .elements,
+                type: 'uniformMatrix4fv'
+              },
+              u_EmissiveColor: {
+                value: color.map(c => c/800),
+                type: 'uniform3fv'
+              },
+              u_Intensity: {
+                value: 2.0,
+                type: 'uniform1f'
+              }
+            }
+          })
+        }));
+
+        return lampGroup;
+      }
+
+      // 创建壁灯
+      function createWallLamp(position, rotation, color) {
+        const lampGroup = [];
+        
+        // 灯臂
+        const arm = new Cylinder(0.05, 0.05, 0.8, 16);
+        lampGroup.push(new Obj3D({
+          geo: new Geo({
+            data: {
+              a_Position: {
+                array: new Float32Array(arm.vertices),
+                size: 3
+              },
+              a_Normal: {
+                array: new Float32Array(arm.normals),
+                size: 3
+              }
+            },
+            index: {
+              array: new Uint16Array(arm.indexes)
+            }
+          }),
+          mat: new Mat({
+            program: 'Main',
+            programName: 'Main',
+            data: {
+              ...basicMaterial.data,
+              u_ModelMatrix: {
+                value: new Matrix4()
+                  .setPosition(...position)
+                  .multiply(
+                    new Matrix4().makeRotationX(rotation[0])
+                      .multiply(new Matrix4().makeRotationY(rotation[1]))
+                      .multiply(new Matrix4().makeRotationZ(rotation[2]))
+                  )
+                  .elements,
+                type: 'uniformMatrix4fv'
+              },
+              u_Metallic: {
+                value: 0.9,
+                type: 'uniform1f'
+              },
+              u_Roughness: {
+                value: 0.2,
+                type: 'uniform1f'
+              },
+              u_Color: {
+                value: [0.8, 0.8, 0.8],
+                type: 'uniform3fv'
+              }
+            }
+          })
+        }));
+
+        // 灯罩（半球形）
+        const shade = new HemiSphere(0.3, 16, 16);
+        const shadePosition = [
+          position[0] + Math.sin(rotation[1]) * 0.8,
+          position[1],
+          position[2] + Math.cos(rotation[1]) * 0.8
+        ];
+        
+        lampGroup.push(new Obj3D({
+          geo: new Geo({
+            data: {
+              a_Position: {
+                array: new Float32Array(shade.vertices),
+                size: 3
+              },
+              a_Normal: {
+                array: new Float32Array(shade.normals),
+                size: 3
+              }
+            },
+            index: {
+              array: new Uint16Array(shade.indexes)
+            }
+          }),
+          mat: new Mat({
+            program: 'Main',
+            programName: 'Main',
+            data: {
+              ...basicMaterial.data,
+              u_ModelMatrix: {
+                value: new Matrix4()
+                  .setPosition(...shadePosition)
+                  .multiply(
+                    new Matrix4().makeRotationY(rotation[1] + Math.PI/2)
+                  )
+                  .elements,
+                type: 'uniformMatrix4fv'
+              },
+              u_Metallic: {
+                value: 0.9,
+                type: 'uniform1f'
+              },
+              u_Roughness: {
+                value: 0.1,
+                type: 'uniform1f'
+              },
+              u_Color: {
+                value: [0.9, 0.9, 0.9],
+                type: 'uniform3fv'
+              }
+            }
+          })
+        }));
+
+        // 发光体
+        const lightBulb = new Sphere(0.15, 16, 16);
+        lampGroup.push(new Obj3D({
+          geo: new Geo({
+            data: {
+              a_Position: {
+                array: new Float32Array(lightBulb.vertices),
+                size: 3
+              }
+            },
+            index: {
+              array: new Uint16Array(lightBulb.indexes)
+            }
+          }),
+          mat: new Mat({
+            program: 'Emissive',
+            programName: 'Emissive',
+            data: {
+              ...basicMaterial.data,
+              u_ModelMatrix: {
+                value: new Matrix4()
+                  .setPosition(...shadePosition)
+                  .elements,
+                type: 'uniformMatrix4fv'
+              },
+              u_EmissiveColor: {
+                value: color.map(c => c/800),
+                type: 'uniform3fv'
+              },
+              u_Intensity: {
+                value: 1.5,
+                type: 'uniform1f'
+              }
+            }
+          })
+        }));
+
+        return lampGroup;
+      }
+
+      // 创建并添加灯具
+      const lamps = [
+        // 中央吊灯
+        ...createCeilingLamp([0, 9.5, 0], [800, 800, 800]),
+        
+        // 壁灯
+        ...createWallLamp([-9.5, 8, 0], [0, Math.PI/2, 0], [600, 500, 400]),
+        ...createWallLamp([9.5, 8, 0], [0, -Math.PI/2, 0], [400, 500, 600]),
+        ...createWallLamp([0, 8, -9.5], [0, 0, 0], [400, 400, 400])
+      ];
+
+      lamps.forEach(lamp => scene.add(lamp));
+
       // 开始动画
       animate();
     }
@@ -414,13 +862,13 @@
         const lightColors = [];
         lights.forEach(light => {
             lightPositions.push(...light.position);
-            lightColors.push(...light.color.map(x => x/400));
+            lightColors.push(...light.color.map(x => x/800));
         });
         
         // 更新场景中所有对象的材质数据
         scene.children.forEach(obj => {
             if (obj.mat) {
-                Object.assign(obj.mat.data, {
+                const data = {
                     u_PvMatrix: {
                         value: orbit.getPvMatrix().elements,
                         type: 'uniformMatrix4fv'
@@ -437,7 +885,22 @@
                         value: lightColors,
                         type: 'uniform3fv'
                     }
-                });
+                };
+
+                // 如果是玻璃材质，更新法线矩阵
+                if (obj.mat.programName === 'Glass') {
+                    const modelMatrix = new Matrix4().fromArray(obj.mat.data.u_ModelMatrix.value);
+                    data.u_NormalMatrix = {
+                        value: new Matrix4()
+                          .copy(modelMatrix)
+                          .invert()
+                          .transpose()
+                          .elements,
+                        type: 'uniformMatrix4fv'
+                    };
+                }
+
+                Object.assign(obj.mat.data, data);
             }
         });
         
@@ -449,10 +912,14 @@
         requestAnimationFrame(animate);
     }
 
-    // 添加动画相关变量
+    // 加动画相关变量
     let time = 0;
-    const lightSpeed = 0.02;
-    const lightRadius = 5;
+    const lightSpeed = 0.005;
+    const lightRadius = 2;
+
+    // 在文件开头添加这些矩阵对象
+    const tempMatrix4 = new Matrix4();
+    const normalMatrix = new Matrix4();
   </script>
 </body>
 

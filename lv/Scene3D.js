@@ -1,6 +1,7 @@
 import Scene from './Scene.js'
 import { createProgram } from './Utils.js'
 import Mat from './Mat.js'
+import { mainShaders, glassShaders, emissiveShaders } from './shaders.js'
 
 export default class Scene3D extends Scene {
   constructor(options) {
@@ -25,41 +26,39 @@ export default class Scene3D extends Scene {
   }
 
   async initShaders() {
-    // 加载着色器文件
-    const loadShader = async (url) => {
-      const response = await fetch(url);
-      return await response.text();
-    };
-
     try {
-      // 加载所有着色器
-      const [mainVS, mainFS, emissiveVS, emissiveFS] = await Promise.all([
-        loadShader('./shaders/main.vs'),
-        loadShader('./shaders/main.fs'),
-        loadShader('./shaders/emissive.vs'),
-        loadShader('./shaders/emissive.fs')
-      ]);
-
-      // 注册所有着色器程序
+      // 注册主着色器程序
       this.registerProgram('Main', {
-        program: createProgram(this.gl, mainVS, mainFS),
+        program: createProgram(this.gl, mainShaders.vs, mainShaders.fs),
         attributeNames: ['a_Position', 'a_Normal', 'a_TexCoord', 'a_TextureType'],
         uniformNames: [
           'u_PvMatrix', 'u_ModelMatrix', 'u_Eye',
           'u_LightPositions', 'u_LightColors',
-          'u_WallTex', 'u_FloorTex'
+          'u_WallTex', 'u_FloorTex',
+          'u_Metallic', 'u_Roughness', 'u_Color'
         ]
       })
 
       // 注册发光材质程序
       this.registerProgram('Emissive', {
-        program: createProgram(this.gl, emissiveVS, emissiveFS),
+        program: createProgram(this.gl, emissiveShaders.vs, emissiveShaders.fs),
         attributeNames: ['a_Position'],
         uniformNames: [
           'u_PvMatrix', 'u_ModelMatrix',
           'u_EmissiveColor', 'u_Intensity'
         ]
       })
+
+      // 注册玻璃材质程序
+      this.registerProgram('Glass', {
+        program: createProgram(this.gl, glassShaders.vs, glassShaders.fs),
+        attributeNames: ['a_Position', 'a_Normal'],
+        uniformNames: [
+          'u_PvMatrix', 'u_ModelMatrix', 'u_NormalMatrix',
+          'u_Eye', 'u_LightPositions', 'u_LightColors'
+        ]
+      })
+
     } catch (error) {
       console.error('Failed to load shaders:', error);
       throw error;

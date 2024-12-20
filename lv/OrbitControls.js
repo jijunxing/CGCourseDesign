@@ -140,46 +140,47 @@ export default class OrbitControls{
 
   rotate({ x, y }) {
     const {
-      dom: { clientHeight },
-      spherical, rotateDir,
+      camera,
+      target,
+      rotateDir,
     } = this
-    const deltaT = pi2 * x / clientHeight
-    const deltaP = pi2 * y / clientHeight
-    if (rotateDir.includes('x')) {
-      spherical.theta -= deltaT
-    }
-    if (rotateDir.includes('y')) {
-      const phi = spherical.phi - deltaP
-      spherical.phi = Math.min(
-        Math.PI * 0.99999999,
-        Math.max(0.00000001, phi)
-      )
-    }
-    this.updateSph()
+    
+    // 增加灵敏度
+    const sensitivity = 0.003; 
+    const deltaX = x * sensitivity;
+    const deltaY = y * sensitivity;
+    
+    // 限制垂直视角范围
+    this._euler = this._euler || { x: 0, y: 0 };
+    this._euler.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this._euler.x - deltaY));
+    this._euler.y -= deltaX;
+    
+    // 计算新的朝向
+    const direction = new Vector3();
+    direction.x = Math.sin(this._euler.y) * Math.cos(this._euler.x);
+    direction.y = Math.sin(this._euler.x);
+    direction.z = Math.cos(this._euler.y) * Math.cos(this._euler.x);
+    
+    // 更新目标点位置
+    const distance = 1; // 增加距离，让控制更平滑
+    target.copy(camera.position).add(direction.multiplyScalar(distance));
+    
+    this.updateCamera();
   }
 
   update() {
-    const {camera,target,spherical,panOffset} = this
-    //基于平移量平移相机
-    target.add(panOffset)
-    camera.position.add(panOffset)
+    const {camera, target, panOffset} = this
+    
+    // 只需要处理平移
+    if (panOffset.lengthSq() > 0) {
+      target.add(panOffset)
+      camera.position.add(panOffset)
+      panOffset.set(0, 0, 0)
+    }
 
-    //基于球坐标缩放相机
-    const rotateOffset = new Vector3()
-      .setFromSpherical(spherical)
-    camera.position.copy(
-      target.clone().add(rotateOffset)
-    )
-
-    //更新投影视图矩阵
+    // 更新相机朝向
     camera.lookAt(target)
     camera.updateMatrixWorld(true)
-    
-    //重置旋转量和平移量
-    spherical.setFromVector3(
-      camera.position.clone().sub(target)
-    )
-    panOffset.set(0, 0, 0)
   }
 
   //基于平移量更新相机轨道
@@ -192,14 +193,8 @@ export default class OrbitControls{
   }
   //基于球坐标更新相机轨道
   updateSph() {
-    const { camera, target, spherical } = this
-    const rotateOffset = new Vector3()
-      .setFromSpherical(spherical)
-    const position = target.clone().add(rotateOffset)
-    
-    camera.position.copy(position)
-    this.updateCamera()
-    this.resetSpherical()
+    const { camera, target } = this;
+    this.updateCamera();
   }
 
   // 更新投影视图矩阵

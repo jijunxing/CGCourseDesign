@@ -1,57 +1,52 @@
-import { Matrix4 } from 'https://unpkg.com/three/build/three.module.js'
-import Mat from './Mat.js'
-import Geo from './Geo.js'
-import Obj3D from './Obj3D.js'
+import { Vector3, Matrix4 } from 'https://unpkg.com/three/build/three.module.js'
 import Sphere from './Sphere.js'
+import Obj3D from './Obj3D.js'
+import Geo from './Geo.js'
+import Mat from './Mat.js'
 
 export class Light {
-  constructor(position, color, intensity = 1.0) {
-    this.position = position
+  constructor(position, color) {
+    this.position = position instanceof Vector3 ? position : new Vector3(...position)
     this.color = color
-    this.intensity = intensity
   }
 
   createVisualizer(scene) {
-    if (!scene || !scene.camera) {
-      console.error('Invalid scene object');
-      return null;
-    }
+    if (!scene || !scene.gl) return null
 
-    const lightSphere = new Sphere(0.2, 16, 16)
-    const { vertices, indexes } = lightSphere
-    
-    const lightMatrix = new Matrix4().setPosition(...this.position)
+    const sphere = new Sphere(0.2, 16, 16)
     return new Obj3D({
       geo: new Geo({
         data: {
           a_Position: {
-            array: vertices,
+            array: new Float32Array(sphere.vertices),
             size: 3
           }
         },
         index: {
-          array: indexes
+          array: new Uint16Array(sphere.indexes)
         }
       }),
       mat: new Mat({
         program: 'Emissive',
         programName: 'Emissive',
         data: {
-          u_ModelMatrix: {
-            value: lightMatrix.elements,
-            type: 'uniformMatrix4fv',
-          },
           u_PvMatrix: {
-            value: scene.camera.getPvMatrix().elements,
-            type: 'uniformMatrix4fv',
+            value: new Matrix4().elements,
+            type: 'uniformMatrix4fv'
+          },
+          u_ModelMatrix: {
+            value: new Matrix4()
+              .setPosition(this.position.x, this.position.y, this.position.z)
+              .elements,
+            type: 'uniformMatrix4fv'
           },
           u_EmissiveColor: {
-            value: this.color.map(x => x/400),
-            type: 'uniform3fv',
+            value: this.color.map(c => c/800),
+            type: 'uniform3fv'
           },
           u_Intensity: {
-            value: 8.0,
-            type: 'uniform1f',
+            value: 2.0,
+            type: 'uniform1f'
           }
         }
       })
