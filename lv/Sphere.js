@@ -1,15 +1,5 @@
 import {Vector3,Spherical} from 'https://unpkg.com/three/build/three.module.js';
 
-/*
-属性：
-  r：半径
-  widthSegments：横向段数，最小3端
-  heightSegments：纵向段数，最小3端
-  vertices：顶点集合
-  normals：法线集合
-  indexes：顶点索引集合
-  count：顶点数量
-*/
 export default class Sphere{
   constructor(r=1, widthSegments=16, heightSegments=16){
     this.r=r
