@@ -39,11 +39,22 @@
     const canvas = document.getElementById('canvas');
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    let gl = canvas.getContext('webgl');
+
+    // 修改为WebGL 2.0上下文
+    let gl = canvas.getContext('webgl2');
+    if (!gl) {
+        console.error('WebGL 2 is not available');
+        alert('你的浏览器不支持WebGL 2，请使用更现代的浏览器。');
+        throw new Error('WebGL 2 not supported');
+    }
+
     gl.clearColor(0.1, 0.1, 0.1, 1);
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    // 为阴影渲染创建复用的缓冲区
+    const shadowBuffers = new Map();
 
     // 加动画相关变量
     let time = 0;
@@ -293,16 +304,22 @@
       const spheres = [
         // 金属球
         { 
-          position: [-4, 0.8, -4], 
+          position: [-4, 2.5, -4],  // 增大初始高度
           color: [0.8, 0.3, 0.3],
           metallic: 0.9,    // 金属材质
-          roughness: 0.2
+          roughness: 0.2,
+          animation: {      // 修改弹跳动画配置
+            type: 'bounce',
+            height: 2.5,    // 增大弹跳高度
+            frequency: 1.2  // 保持原有频率
+          }
         }
       ];
 
-      spheres.forEach(({ position, color, metallic, roughness }) => {
-        const sphere = new Sphere(0.8, 24, 24)
-        scene.add(new Obj3D({
+      spheres.forEach(({ position, color, metallic, roughness, animation }) => {
+        const sphere = new Sphere(0.8, 24, 24);
+        const modelMatrix = new Matrix4().setPosition(...position);
+        const sphereObj = new Obj3D({
           geo: new Geo({
             data: {
               a_Position: {
@@ -328,7 +345,7 @@
             data: {
               ...basicMaterial.data,
               u_ModelMatrix: {
-                value: new Matrix4().setPosition(...position).elements,
+                value: modelMatrix.elements,
                 type: 'uniformMatrix4fv'
               },
               u_Color: {
@@ -346,12 +363,24 @@
             },
             mode: 'TRIANGLES'
           })
-        }))
-      })
+        });
+        scene.add(sphereObj);
+
+        // 如果有动画配置，添加到动画列表
+        if (animation) {
+          animatedObjects.push({
+            object: sphereObj,
+            animation,
+            basePosition: position,
+            modelMatrix
+          });
+        }
+      });
 
       // 创建玻璃球
       const glassSphere = new Sphere(0.8, 32, 32)
-      scene.add(new Obj3D({
+      const glassModelMatrix = new Matrix4().setPosition(6, 6, 6);  // 调整初始位置到更高更远的位置
+      const glassObj = new Obj3D({
         geo: new Geo({
           data: {
             a_Position: {
@@ -373,12 +402,12 @@
           data: {
             ...basicMaterial.data,
             u_ModelMatrix: {
-              value: new Matrix4().setPosition(4, 0.8, 4).elements,
+              value: glassModelMatrix.elements,
               type: 'uniformMatrix4fv'
             },
             u_NormalMatrix: {
               value: new Matrix4()
-                .makeTranslation(4, 0.8, 4)
+                .copy(glassModelMatrix)
                 .invert()
                 .transpose()
                 .elements,
@@ -386,7 +415,21 @@
             }
           }
         })
-      }))
+      });
+      scene.add(glassObj);
+
+      // 添加到动画列表
+      animatedObjects.push({
+        object: glassObj,
+        animation: {
+          type: 'circle',
+          radius: 8,       // 增大圆周运动半径从4到8
+          height: 6,       // 增大运动平面的高度从4到6
+          speed: 0.3,      // 保持原有速度
+          center: [0, 0, 0] // 保持在场景中心
+        },
+        modelMatrix: glassModelMatrix
+      });
 
       // 添加光源可视化
       lights.forEach(light => {
@@ -449,13 +492,13 @@
       const decorations = [
         // 漂浮的金属环
         { 
-          geometry: new Torus(0.5, 0.2, 32, 32),
+          geometry: new Torus(1.0, 0.4, 32, 32),  // 增大环的尺寸和厚度
           position: [2, 3.5, 2],
           rotation: [Math.PI/4, 0, Math.PI/6],
           material: {
             metallic: 0.9,
             roughness: 0.2,
-            color: [0.98, 0.8, 0.6], // 玫瑰金色
+            color: [0.98, 0.8, 0.6], // 玫瑰金
             useTexture: false
           },
           animation: {
@@ -466,9 +509,9 @@
         },
         // 漂浮的正方体
         {
-          geometry: new Box(0.8, 0.8, 0.8),
+          geometry: new Box(1.6, 1.6, 1.6),  // 增大立方体尺寸
           position: [-2, 4.2, 3],
-          rotation: [Math.PI/4, 0, 0],  // 只保留X轴的始旋转
+          rotation: [0, 0, 0],
           material: {
             metallic: 0.3,
             roughness: 0.1,
@@ -477,12 +520,13 @@
           },
           animation: {
             type: 'rotate',
-            speed: 0.0001
+            speed: 0.2,  // 降低旋转速度从0.5到0.2
+            axis: 'y'
           }
         },
         // 漂浮的发光球
         {
-          geometry: new Sphere(0.4, 32, 32),
+          geometry: new Sphere(0.8, 32, 32),  // 增大球体尺寸
           position: [3, 2.8, -2],
           material: {
             metallic: 0.0,
@@ -495,9 +539,9 @@
             frequency: 1.5
           }
         },
-        // 漂浮的金属立方体
+        // 漂浮的金属方体
         {
-          geometry: new Box(0.6, 0.6, 0.6),
+          geometry: new Box(1.2, 1.2, 1.2),  // 增大立方体尺寸
           position: [-1, 5, -3],
           rotation: [0, Math.PI/6, Math.PI/6],
           material: {
@@ -570,10 +614,10 @@
           })
         });
 
-        // 添���场景
+        // 添加场景
         scene.add(obj);
 
-        // 如果动画，添加到动画列表
+        // 如果动画，加到动画列表
         if (animation) {
           animatedObjects.push({
             object: obj,
@@ -598,53 +642,79 @@
     // 创建阴影贴图和阴影程序
     const SHADOW_MAP_SIZE = 2048;
     const shadowFramebuffer = gl.createFramebuffer();
-    const shadowTexture = gl.createTexture();
+    const shadowDepthTexture = gl.createTexture();
     const shadowProgram = createProgram(gl, shadowShaders.vs, shadowShaders.fs);
     
-    // 为阴影渲染创建复用的缓冲区
-    const shadowBuffers = new Map();
-    
-    // 初始化阴影贴图纹理
-    gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
+    // 初始化阴影深度纹理
+    gl.bindTexture(gl.TEXTURE_2D, shadowDepthTexture);
     gl.texImage2D(
-      gl.TEXTURE_2D, 0, gl.RGBA,
-      SHADOW_MAP_SIZE, SHADOW_MAP_SIZE,
-      0, gl.RGBA, gl.UNSIGNED_BYTE, null
+        gl.TEXTURE_2D,
+        0,
+        gl.DEPTH_COMPONENT32F,  // 使用32位浮点深度格式
+        SHADOW_MAP_SIZE,
+        SHADOW_MAP_SIZE,
+        0,
+        gl.DEPTH_COMPONENT,
+        gl.FLOAT,
+        null
     );
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    
-    // 创建深度缓冲区
-    const depthBuffer = gl.createRenderbuffer();
-    gl.bindRenderbuffer(gl.RENDERBUFFER, depthBuffer);
-    gl.renderbufferStorage(
-      gl.RENDERBUFFER, gl.DEPTH_COMPONENT16,
-      SHADOW_MAP_SIZE, SHADOW_MAP_SIZE
-    );
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
     
     // 配置帧缓冲区
     gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
     gl.framebufferTexture2D(
-      gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
-      gl.TEXTURE_2D, shadowTexture, 0
+        gl.FRAMEBUFFER,
+        gl.DEPTH_ATTACHMENT,
+        gl.TEXTURE_2D,
+        shadowDepthTexture,
+        0
     );
-    gl.framebufferRenderbuffer(
-      gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT,
-      gl.RENDERBUFFER, depthBuffer
+    
+    // 创建一个颜色附件（WebGL2需要至少一个颜色附件）
+    const colorTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, colorTexture);
+    gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA,
+        SHADOW_MAP_SIZE,
+        SHADOW_MAP_SIZE,
+        0,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        null
     );
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.framebufferTexture2D(
+        gl.FRAMEBUFFER,
+        gl.COLOR_ATTACHMENT0,
+        gl.TEXTURE_2D,
+        colorTexture,
+        0
+    );
+    
+    // 告诉WebGL我们不会渲染到颜色缓冲区
+    gl.drawBuffers([gl.NONE]);
+    gl.readBuffer(gl.NONE);
     
     // 检查帧缓冲状态
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
-      console.error('Framebuffer is not complete:', status);
+        console.error('Framebuffer is not complete:', status);
     }
     
     // 重置绑定
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.bindTexture(gl.TEXTURE_2D, null);
-    gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+
+    // 在文件开头添加这个变量
+    let lastTime = performance.now();
 
     // 渲染循环
     function animate() {
@@ -655,6 +725,8 @@
         
         // 更新时间
         const currentTime = performance.now();
+        const deltaTime = (currentTime - lastTime) / 1000; // 转换为秒
+        lastTime = currentTime;
         const time = (currentTime - startTime) / 1000;
         
         // 更新相机位置
@@ -671,6 +743,88 @@
                 }
             });
         }
+
+        // 更新动画物体
+        animatedObjects.forEach(({ object, animation, basePosition, baseRotation, modelMatrix, material }) => {
+            switch (animation.type) {
+                case 'float':
+                    // 上下浮动动画
+                    const floatOffset = Math.sin(time * animation.frequency) * animation.amplitude;
+                    modelMatrix.setPosition(
+                        basePosition[0],
+                        basePosition[1] + floatOffset,
+                        basePosition[2]
+                    );
+                    break;
+                
+                case 'rotate':
+                    // 自转动画 - 使用增量时间实现匀速旋转
+                    modelMatrix.setPosition(...basePosition);
+                    
+                    // 为每个对象存储当前的旋转角度
+                    if (object.currentRotation === undefined) {
+                        object.currentRotation = 0;
+                    }
+                    
+                    // 根据增量时间更新旋转角度
+                    object.currentRotation += animation.speed * deltaTime;
+                    
+                    // 根据指定的旋转轴应用旋转
+                    if (animation.axis === 'y') {
+                        modelMatrix.multiply(new Matrix4().makeRotationY(object.currentRotation));
+                    } else if (animation.axis === 'x') {
+                        modelMatrix.multiply(new Matrix4().makeRotationX(object.currentRotation));
+                    } else if (animation.axis === 'z') {
+                        modelMatrix.multiply(new Matrix4().makeRotationZ(object.currentRotation));
+                    }
+                    break;
+                
+                case 'pulse':
+                    // 脉冲光动画
+                    const intensity = 1 + Math.sin(time * animation.frequency) * 0.3;
+                    object.mat.data.u_Color.value = material.color.map(c => c * intensity);
+                    break;
+                
+                case 'circle':
+                    // 圆周运动动画
+                    const angle = time * animation.speed;
+                    const x = animation.center[0] + animation.radius * Math.cos(angle);
+                    const z = animation.center[2] + animation.radius * Math.sin(angle);
+                    modelMatrix.setPosition(x, animation.height, z);
+                    
+                    // 更新法线矩阵
+                    object.mat.data.u_NormalMatrix.value = new Matrix4()
+                        .copy(modelMatrix)
+                        .invert()
+                        .transpose()
+                        .elements;
+                    break;
+                
+                case 'bounce':
+                    // 弹跳动画
+                    const bounceHeight = animation.height;
+                    const bounceFreq = animation.frequency;
+                    
+                    // 使用时间计算当前高度
+                    const t = time * bounceFreq;
+                    const phase = t - Math.floor(t);  // 获取周期内的相位
+                    
+                    // 计算当前高度，使用正弦函数产生周期性弹跳
+                    // 增大偏移量以避免穿模
+                    const currentHeight = bounceHeight * Math.abs(Math.sin(Math.PI * phase)) + 0.7;
+                    
+                    // 更新位置
+                    modelMatrix.setPosition(
+                        basePosition[0],
+                        basePosition[1] - bounceHeight + currentHeight,
+                        basePosition[2]
+                    );
+                    break;
+            }
+            
+            // 更新模型矩阵
+            object.mat.data.u_ModelMatrix.value = modelMatrix.elements;
+        });
         
         // 更新轨道控制器
         orbit.update();
@@ -683,41 +837,6 @@
             lightColors.push(...light.color.map(x => x/400));
         });
 
-        // 更新动画物体
-        animatedObjects.forEach(({ object, animation, basePosition, baseRotation, modelMatrix, material }) => {
-          switch (animation.type) {
-            case 'float':
-              // 上下浮动画
-              const floatOffset = Math.sin(time * animation.frequency) * animation.amplitude;
-              modelMatrix.setPosition(
-                basePosition[0],
-                basePosition[1] + floatOffset,
-                basePosition[2]
-              );
-              break;
-            
-            case 'rotate':
-              // 自转动画
-              const angle = (time * animation.speed) % (2 * Math.PI);
-              modelMatrix
-                .setPosition(...basePosition)
-                .multiply(
-                  new Matrix4()
-                    .makeRotationX(angle)
-                );
-              break;
-            
-            case 'pulse':
-              // 脉冲光动画
-              const intensity = 1 + Math.sin(time * animation.frequency) * 0.3;
-              object.mat.data.u_Color.value = material.color.map(c => c * intensity);
-              break;
-          }
-          
-          // 更新模型矩阵
-          object.mat.data.u_ModelMatrix.value = modelMatrix.elements;
-        });
-
         // 计算光源视图矩阵
         const lightView = new Matrix4().lookAt(
             new Vector3(...lightPositions.slice(0, 3)),  // 光源位置
@@ -725,7 +844,7 @@
             new Vector3(0, 1, 0)   // 上方向
         );
 
-        // 计算光源投影矩阵（使用正交投影）
+        // 计算光源投影矩阵（使用正交影）
         const lightProjection = new Matrix4().makeOrthographic(
             -20, 20,   // left, right
             -20, 20,   // bottom, top
@@ -738,7 +857,12 @@
         // 第一步：渲染阴影贴图
         gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
         gl.viewport(0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        gl.clear(gl.DEPTH_BUFFER_BIT);
+
+        // 启用深度测试和剔除正面（避免阴影失真）
+        gl.enable(gl.DEPTH_TEST);
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(gl.FRONT);
 
         // 使用阴影着色器程序
         gl.useProgram(shadowProgram);
@@ -757,7 +881,7 @@
                     }
                 };
                 
-                // 设置阴影着色器的uniforms
+                // 置阴影着色器的uniforms
                 Object.entries(shadowData).forEach(([key, { value, type }]) => {
                     const location = gl.getUniformLocation(shadowProgram, key);
                     if (location) {
@@ -790,7 +914,7 @@
                     shadowBuffers.set(objId, buffers);
                 }
 
-                // 使用已存在的缓冲区
+                // 使用已有的缓冲区
                 const buffers = shadowBuffers.get(objId);
                 Object.entries(geo.data).forEach(([key, { size }]) => {
                     const location = gl.getAttribLocation(shadowProgram, key);
@@ -815,6 +939,9 @@
         gl.viewport(0, 0, canvas.width, canvas.height);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         
+        // 恢复正常的面剔除设置
+        gl.disable(gl.CULL_FACE);
+
         // 更新场景中所有对象的材质数据
         scene.children.forEach(obj => {
             if (obj.mat) {
@@ -846,7 +973,7 @@
 
         // 绑定阴影贴图
         gl.activeTexture(gl.TEXTURE2);
-        gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
+        gl.bindTexture(gl.TEXTURE_2D, shadowDepthTexture);
         scene.children.forEach(obj => {
             if (obj.mat && obj.mat.program === 'Main') {
                 const location = gl.getUniformLocation(obj.mat.program, 'u_ShadowMap');
@@ -866,9 +993,9 @@
       const helpText = `
 键控制说明：
   相机移动：
-    W/S - 前进/后退
+    W/S - 前后移动
     A/D - 左右移动
-    Q/E - 上升/下降
+    Q/E - 升/下降
     
   光源控制：
     I/K - 前后移动

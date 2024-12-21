@@ -1,15 +1,15 @@
 // 玻璃材质着色器
 export const glassShaders = {
-  vs: `
-    attribute vec3 a_Position;
-    attribute vec3 a_Normal;
+  vs: `#version 300 es
+    in vec3 a_Position;
+    in vec3 a_Normal;
     
     uniform mat4 u_ModelMatrix;
     uniform mat4 u_PvMatrix;
     uniform mat4 u_NormalMatrix;
     
-    varying vec3 v_Position;
-    varying vec3 v_Normal;
+    out vec3 v_Position;
+    out vec3 v_Normal;
     
     void main() {
       vec4 worldPos = u_ModelMatrix * vec4(a_Position, 1.0);
@@ -18,19 +18,21 @@ export const glassShaders = {
       v_Normal = normalize(mat3(u_NormalMatrix) * a_Normal);
     }
   `,
-  fs: `
+  fs: `#version 300 es
     precision highp float;
     
     uniform vec3 u_Eye;
-    uniform vec3 u_LightPositions[4];
-    uniform vec3 u_LightColors[4];
+    uniform vec3 u_LightPositions[1];
+    uniform vec3 u_LightColors[1];
     
-    varying vec3 v_Position;
-    varying vec3 v_Normal;
+    in vec3 v_Position;
+    in vec3 v_Normal;
+    
+    out vec4 fragColor;
     
     const float IOR = 1.5; // 玻璃的折射率
     const float R0 = pow((1.0 - IOR) / (1.0 + IOR), 2.0);
-    const int MAX_BOUNCES = 3;
+    const float TRANSPARENCY = 0.3; // 透明度
     
     // 菲涅尔方程
     float fresnel(float cosTheta) {
@@ -53,7 +55,7 @@ export const glassShaders = {
       vec3 refractColor = vec3(0.0);
       
       // 增强反射光照
-      for(int i = 0; i < 4; i++) {
+      for(int i = 0; i < 1; i++) {
         vec3 L = normalize(u_LightPositions[i] - v_Position);
         vec3 H = normalize(V + L);
         float distance = length(u_LightPositions[i] - v_Position);
@@ -64,7 +66,7 @@ export const glassShaders = {
       }
       
       // 增强折射光照
-      for(int i = 0; i < 4; i++) {
+      for(int i = 0; i < 1; i++) {
         vec3 L = normalize(u_LightPositions[i] - v_Position);
         float distance = length(u_LightPositions[i] - v_Position);
         float attenuation = 1.0 / (1.0 + 0.045 * distance + 0.0075 * distance * distance);
@@ -80,10 +82,11 @@ export const glassShaders = {
       vec3 glassColor = vec3(0.95, 0.95, 1.0);
       finalColor = finalColor * glassColor + glassColor * 0.2;
       
-      gl_FragColor = vec4(finalColor, 0.5);
+      // 应用透明度
+      fragColor = vec4(finalColor, TRANSPARENCY);
     }
   `
-}
+};
 
 // PBR材质着色器
 export const pbrShaders = {
@@ -177,8 +180,8 @@ const shadowFS = `
 
 // 阴影贴图生成着色器
 export const shadowShaders = {
-  vs: `
-    attribute vec3 a_Position;
+  vs: `#version 300 es
+    in vec3 a_Position;
     
     uniform mat4 u_ModelMatrix;
     uniform mat4 u_LightSpaceMatrix;
@@ -187,32 +190,35 @@ export const shadowShaders = {
       gl_Position = u_LightSpaceMatrix * u_ModelMatrix * vec4(a_Position, 1.0);
     }
   `,
-  fs: `
-    precision mediump float;
+  fs: `#version 300 es
+    precision highp float;
+    
+    out vec4 fragColor;
     
     void main() {
-      gl_FragColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
+      // 深度值已经自动写入深度缓冲区
+      fragColor = vec4(gl_FragCoord.z, gl_FragCoord.z, gl_FragCoord.z, 1.0);
     }
   `
 };
 
 // 主要着色器
 export const mainShaders = {
-  vs: `
-    attribute vec3 a_Position;
-    attribute vec3 a_Normal;
-    attribute vec2 a_TexCoord;
-    attribute float a_TextureType;
+  vs: `#version 300 es
+    in vec3 a_Position;
+    in vec3 a_Normal;
+    in vec2 a_TexCoord;
+    in float a_TextureType;
     
     uniform mat4 u_ModelMatrix;
     uniform mat4 u_PvMatrix;
     uniform mat4 u_LightSpaceMatrix;
     
-    varying vec3 v_Position;
-    varying vec3 v_Normal;
-    varying vec2 v_TexCoord;
-    varying float v_TextureType;
-    varying vec4 v_LightSpacePos;
+    out vec3 v_Position;
+    out vec3 v_Normal;
+    out vec2 v_TexCoord;
+    out float v_TextureType;
+    out vec4 v_LightSpacePos;
     
     void main() {
       vec4 worldPos = u_ModelMatrix * vec4(a_Position, 1.0);
@@ -225,8 +231,14 @@ export const mainShaders = {
       v_LightSpacePos = u_LightSpaceMatrix * worldPos;
     }
   `,
-  fs: `
-    precision mediump float;
+  fs: `#version 300 es
+    precision highp float;
+    
+    in vec3 v_Position;
+    in vec3 v_Normal;
+    in vec2 v_TexCoord;
+    in float v_TextureType;
+    in vec4 v_LightSpacePos;
     
     uniform vec3 u_Eye;
     uniform vec3 u_LightPositions[1];
@@ -238,31 +250,34 @@ export const mainShaders = {
     uniform float u_Metallic;
     uniform float u_Roughness;
     
-    varying vec3 v_Position;
-    varying vec3 v_Normal;
-    varying vec2 v_TexCoord;
-    varying float v_TextureType;
-    varying vec4 v_LightSpacePos;
+    out vec4 fragColor;
     
     float getShadow() {
+      // 执行透视除法
       vec3 projCoords = v_LightSpacePos.xyz / v_LightSpacePos.w;
+      // 变换到[0,1]范围
       projCoords = projCoords * 0.5 + 0.5;
       
+      // 获取当前片段在光源视角下的深度
       float currentDepth = projCoords.z;
-      float bias = 0.001;  // 减小偏移值，使阴影更精确
       
-      // 使用PCF软阴影
+      // 阴影偏移值，避免阴影失真
+      float bias = max(0.005 * (1.0 - dot(normalize(v_Normal), normalize(u_LightPositions[0] - v_Position))), 0.0005);
+      
+      // PCF软阴影
       float shadow = 0.0;
       vec2 texelSize = 1.0 / vec2(2048.0);
-      for(int x = -2; x <= 2; x++) {  // 增加采样范围
+      for(int x = -2; x <= 2; x++) {
         for(int y = -2; y <= 2; y++) {
-          float pcfDepth = texture2D(u_ShadowMap, projCoords.xy + vec2(x, y) * texelSize).r;
-          shadow += currentDepth - bias > pcfDepth ? 0.8 : 0.0;  // 增加阴影强度
+          float pcfDepth = texture(u_ShadowMap, projCoords.xy + vec2(x, y) * texelSize).r;
+          shadow += currentDepth - bias > pcfDepth ? 0.6 : 0.0;  // 降低阴影强度
         }
       }
-      shadow /= 25.0;  // 5x5 采样
+      shadow /= 25.0;
       
-      if(projCoords.z > 1.0) {
+      // 处理超出阴影贴图范围的情况
+      if(projCoords.z > 1.0 || projCoords.x < 0.0 || projCoords.x > 1.0 || 
+         projCoords.y < 0.0 || projCoords.y > 1.0) {
         shadow = 0.0;
       }
       
@@ -276,15 +291,15 @@ export const mainShaders = {
       // 获取材质颜色
       vec3 materialColor;
       if(v_TextureType == 0.0) {
-        materialColor = texture2D(u_WallTex, v_TexCoord).rgb;
+        materialColor = texture(u_WallTex, v_TexCoord).rgb;
       } else if(v_TextureType == 1.0) {
-        materialColor = texture2D(u_FloorTex, v_TexCoord).rgb;
+        materialColor = texture(u_FloorTex, v_TexCoord).rgb;
       } else {
         materialColor = u_Color;
       }
       
       // 环境光
-      vec3 ambient = 0.15 * materialColor;  // 降低环境光强度
+      vec3 ambient = 0.2 * materialColor;  // 增加环境光强度
       
       vec3 finalColor = ambient;
       
@@ -295,7 +310,7 @@ export const mainShaders = {
       for(int i = 0; i < 1; i++) {
         vec3 lightDir = normalize(u_LightPositions[i] - v_Position);
         float distance = length(u_LightPositions[i] - v_Position);
-        float attenuation = 1.0 / (1.0 + 0.09 * distance + 0.032 * distance * distance);  // 增加衰减
+        float attenuation = 1.0 / (1.0 + 0.045 * distance + 0.0075 * distance * distance);
         
         // 漫反射
         float diff = max(dot(normal, lightDir), 0.0);
@@ -310,7 +325,7 @@ export const mainShaders = {
         finalColor += (1.0 - shadow) * (diffuse + specular) * attenuation;
       }
       
-      gl_FragColor = vec4(finalColor, 1.0);
+      fragColor = vec4(finalColor, 1.0);
     }
   `
 };
