@@ -17,7 +17,7 @@
 
   <script type="module">
     import { createProgram, imgPromise } from './lv/Utils.js';
-    import { mainShaders, glassShaders, emissiveShaders } from './lv/shaders.js';
+    import { mainShaders, glassShaders, emissiveShaders, shadowShaders } from './lv/shaders.js';
     import {
       Matrix4, PerspectiveCamera, Vector3, OrthographicCamera
     } from 'https://unpkg.com/three/build/three.module.js';
@@ -56,6 +56,9 @@
     const tempMatrix4 = new Matrix4();
     const normalMatrix = new Matrix4();
     let startTime = performance.now();  // 添加起始时间
+    
+    // 初始光源位置
+    const initialLightPosition = new Vector3(0, 8, 0);
 
     // 目标点
     const target = new Vector3(0, 6, -10)
@@ -106,90 +109,15 @@
 
     // 键盘控制
     const moveSpeed = 0.1;
+    const lightMoveSpeed = 0.2;  // 光源移动速度
     const keysPressed = new Set();
     
-    window.addEventListener('keydown', (e) => {
-      const key = e.key.toLowerCase();
-      keysPressed.add(key);
-      
-      // 单键功能
-      switch(key) {
-        case 'r': // 重置相机位置
-          camera.position.copy(eye);
-          target.copy(new Vector3(0, 6, -10));
-          orbit.update();
-          break;
-        
-        case 'h': // 显示/隐藏帮助信息
-          showHelp();
-          break;
-      }
-    });
-    
-    window.addEventListener('keyup', (e) => {
-      keysPressed.delete(e.key.toLowerCase());
-    });
-    
-    // 相机移动函数
-    function updateCameraPosition() {
-      const { position } = camera;
-      // 获取相机到目标点的方向作为前方向
-      const forward = target.clone().sub(position).normalize();
-      // 计算右方向
-      const right = forward.clone().cross(new Vector3(0, 1, 0)).normalize();
-      
-      let moved = false;
-      // 前后移动
-      if (keysPressed.has('w')) {
-        const movement = forward.clone().multiplyScalar(moveSpeed);
-        position.add(movement);
-        target.add(movement);
-        moved = true;
-      }
-      if (keysPressed.has('s')) {
-        const movement = forward.clone().multiplyScalar(-moveSpeed);
-        position.add(movement);
-        target.add(movement);
-        moved = true;
-      }
-      
-      // 左右移动
-      if (keysPressed.has('a')) {
-        const movement = right.clone().multiplyScalar(-moveSpeed);
-        position.add(movement);
-        target.add(movement);
-        moved = true;
-      }
-      if (keysPressed.has('d')) {
-        const movement = right.clone().multiplyScalar(moveSpeed);
-        position.add(movement);
-        target.add(movement);
-        moved = true;
-      }
-      
-      // 上下移动
-      if (keysPressed.has('q')) {
-        position.y += moveSpeed;
-        target.y += moveSpeed;
-        moved = true;
-      }
-      if (keysPressed.has('e')) {
-        position.y -= moveSpeed;
-        target.y -= moveSpeed;
-        moved = true;
-      }
-      
-      if (moved) {
-        orbit.update();
-      }
-    }
-
     // 定义光源
     let lights = [
-      // 主光源 - 顶部中央偏前
+      // 主光源 - 调整到房间中央偏上位置
       new Light(
-        new Vector3(0, 9.5, -3),
-        [400, 400, 400]  // 降低光源强度
+        initialLightPosition.clone(),  // 使用初始位置的克隆
+        [600, 600, 600]  // 调整光源强度
       )
     ]
     
@@ -267,7 +195,7 @@
       const lightColors = [];
       lights.forEach(light => {
         lightPositions.push(...light.position);
-        lightColors.push(...light.color.map(x => x/800));
+        lightColors.push(...light.color.map(x => x/400));
       });
 
       // 基础光照数据
@@ -517,7 +445,7 @@
           ...textureUniforms
       };
       
-      // 添加一些装饰性物体
+      // 添加装饰性物体
       const decorations = [
         // 漂浮的金属环
         { 
@@ -540,7 +468,7 @@
         {
           geometry: new Box(0.8, 0.8, 0.8),
           position: [-2, 4.2, 3],
-          rotation: [Math.PI/4, 0, 0],  // 只保留X轴的初始旋转
+          rotation: [Math.PI/4, 0, 0],  // 只保留X轴的始旋转
           material: {
             metallic: 0.3,
             roughness: 0.1,
@@ -559,7 +487,7 @@
           material: {
             metallic: 0.0,
             roughness: 0.0,
-            color: [1.0, 0.6, 0.2], // 橙色
+            color: [1.0, 0.6, 0.2], // 黄色
             useTexture: false
           },
           animation: {
@@ -608,7 +536,7 @@
                 size: 3
               },
               a_TextureType: {
-                array: new Float32Array(geometry.vertices.length / 3).fill(2.0),  // 使用纯色
+                array: new Float32Array(geometry.vertices.length / 3).fill(2.0),
                 size: 1
               }
             },
@@ -620,6 +548,7 @@
             program: 'Main',
             programName: 'Main',
             data: {
+              ...basicMaterial.data,
               u_ModelMatrix: {
                 value: modelMatrix.elements,
                 type: 'uniformMatrix4fv'
@@ -635,292 +564,27 @@
               u_Roughness: {
                 value: material.roughness,
                 type: 'uniform1f'
-              },
-              u_Eye: {
-                value: Object.values(camera.position),
-                type: 'uniform3fv'
-              },
-              u_LightPositions: {
-                value: lightPositions,
-                type: 'uniform3fv'
-              },
-              u_LightColors: {
-                value: lightColors,
-                type: 'uniform3fv'
-              },
-              u_PvMatrix: {
-                value: orbit.getPvMatrix().elements,
-                type: 'uniformMatrix4fv'
               }
             },
             mode: 'TRIANGLES'
           })
         });
 
-        // 存储动画相关信息
+        // 添���场景
+        scene.add(obj);
+
+        // 如果动画，添加到动画列表
         if (animation) {
           animatedObjects.push({
             object: obj,
             animation,
-            basePosition: [...position],
-            baseRotation: [...rotation],
-            modelMatrix,
+            basePosition: position,
+            baseRotation: rotation,
+            modelMatrix: modelMatrix,
             material
           });
         }
-
-        scene.add(obj);
       });
-
-      // 创建吊灯
-      function createCeilingLamp(position, color) {
-        const lampGroup = [];
-        
-        // 灯罩（圆锥体）
-        const lampShade = new Cone(0.6, 0.2, 1.2, 32);
-        lampGroup.push(new Obj3D({
-          geo: new Geo({
-            data: {
-              a_Position: {
-                array: new Float32Array(lampShade.vertices),
-                size: 3
-              },
-              a_Normal: {
-                array: new Float32Array(lampShade.normals),
-                size: 3
-              }
-            },
-            index: {
-              array: new Uint16Array(lampShade.indexes)
-            }
-          }),
-          mat: new Mat({
-            program: 'Main',
-            programName: 'Main',
-            data: {
-              ...basicMaterial.data,
-              u_ModelMatrix: {
-                value: new Matrix4()
-                  .setPosition(...position)
-                  .elements,
-                type: 'uniformMatrix4fv'
-              },
-              u_Metallic: {
-                value: 0.9,
-                type: 'uniform1f'
-              },
-              u_Roughness: {
-                value: 0.1,
-                type: 'uniform1f'
-              },
-              u_Color: {
-                value: [0.9, 0.9, 0.9],
-                type: 'uniform3fv'
-              }
-            }
-          })
-        }));
-
-        // 发光体
-        const lightBulb = new Sphere(0.2, 16, 16);
-        lampGroup.push(new Obj3D({
-          geo: new Geo({
-            data: {
-              a_Position: {
-                array: new Float32Array(lightBulb.vertices),
-                size: 3
-              }
-            },
-            index: {
-              array: new Uint16Array(lightBulb.indexes)
-            }
-          }),
-          mat: new Mat({
-            program: 'Emissive',
-            programName: 'Emissive',
-            data: {
-              ...basicMaterial.data,
-              u_ModelMatrix: {
-                value: new Matrix4()
-                  .setPosition(position[0], position[1] - 0.2, position[2])
-                  .elements,
-                type: 'uniformMatrix4fv'
-              },
-              u_EmissiveColor: {
-                value: color.map(c => c/800),
-                type: 'uniform3fv'
-              },
-              u_Intensity: {
-                value: 2.0,
-                type: 'uniform1f'
-              }
-            }
-          })
-        }));
-
-        return lampGroup;
-      }
-
-      // 创建壁灯
-      function createWallLamp(position, rotation, color) {
-        const lampGroup = [];
-        
-        // 灯臂
-        const arm = new Cylinder(0.05, 0.05, 0.8, 16);
-        lampGroup.push(new Obj3D({
-          geo: new Geo({
-            data: {
-              a_Position: {
-                array: new Float32Array(arm.vertices),
-                size: 3
-              },
-              a_Normal: {
-                array: new Float32Array(arm.normals),
-                size: 3
-              }
-            },
-            index: {
-              array: new Uint16Array(arm.indexes)
-            }
-          }),
-          mat: new Mat({
-            program: 'Main',
-            programName: 'Main',
-            data: {
-              ...basicMaterial.data,
-              u_ModelMatrix: {
-                value: new Matrix4()
-                  .setPosition(...position)
-                  .multiply(
-                    new Matrix4().makeRotationX(rotation[0])
-                      .multiply(new Matrix4().makeRotationY(rotation[1]))
-                      .multiply(new Matrix4().makeRotationZ(rotation[2]))
-                      )
-                  .elements,
-                type: 'uniformMatrix4fv'
-              },
-              u_Metallic: {
-                value: 0.9,
-                type: 'uniform1f'
-              },
-              u_Roughness: {
-                value: 0.2,
-                type: 'uniform1f'
-              },
-              u_Color: {
-                value: [0.8, 0.8, 0.8],
-                type: 'uniform3fv'
-              }
-            }
-          })
-        }));
-
-        // 灯罩（半球形）
-        const shade = new HemiSphere(0.3, 16, 16);
-        const shadePosition = [
-          position[0] + Math.sin(rotation[1]) * 0.8,
-          position[1],
-          position[2] + Math.cos(rotation[1]) * 0.8
-        ];
-        
-        lampGroup.push(new Obj3D({
-          geo: new Geo({
-            data: {
-              a_Position: {
-                array: new Float32Array(shade.vertices),
-                size: 3
-              },
-              a_Normal: {
-                array: new Float32Array(shade.normals),
-                size: 3
-              }
-            },
-            index: {
-              array: new Uint16Array(shade.indexes)
-            }
-          }),
-          mat: new Mat({
-            program: 'Main',
-            programName: 'Main',
-            data: {
-              ...basicMaterial.data,
-              u_ModelMatrix: {
-                value: new Matrix4()
-                  .setPosition(...shadePosition)
-                  .multiply(
-                    new Matrix4().makeRotationY(rotation[1] + Math.PI/2)
-                  )
-                  .elements,
-                type: 'uniformMatrix4fv'
-              },
-              u_Metallic: {
-                value: 0.9,
-                type: 'uniform1f'
-              },
-              u_Roughness: {
-                value: 0.1,
-                type: 'uniform1f'
-              },
-              u_Color: {
-                value: [0.9, 0.9, 0.9],
-                type: 'uniform3fv'
-              }
-            }
-          })
-        }));
-
-        // 发光体
-        const lightBulb = new Sphere(0.15, 16, 16);
-        lampGroup.push(new Obj3D({
-          geo: new Geo({
-            data: {
-              a_Position: {
-                array: new Float32Array(lightBulb.vertices),
-                size: 3
-              }
-            },
-            index: {
-              array: new Uint16Array(lightBulb.indexes)
-            }
-          }),
-          mat: new Mat({
-            program: 'Emissive',
-            programName: 'Emissive',
-            data: {
-              ...basicMaterial.data,
-              u_ModelMatrix: {
-                value: new Matrix4()
-                  .setPosition(...shadePosition)
-                  .elements,
-                type: 'uniformMatrix4fv'
-              },
-              u_EmissiveColor: {
-                value: color.map(c => c/800),
-                type: 'uniform3fv'
-              },
-              u_Intensity: {
-                value: 1.5,
-                type: 'uniform1f'
-              }
-            }
-          })
-        }));
-
-        return lampGroup;
-      }
-
-      // 创建并添加灯具
-      const lamps = [
-        // 中央吊灯
-        ...createCeilingLamp([0, 9.5, -3], [400, 400, 400]),  // 降低吊灯强度
-        
-        // 装饰性壁灯（不产生实际光照）
-        ...createWallLamp([-9.5, 8, 0], [0, Math.PI/2, 0], [100, 75, 50]),
-        ...createWallLamp([9.5, 8, 0], [0, -Math.PI/2, 0], [50, 75, 100]),
-        ...createWallLamp([0, 8, -9.5], [0, 0, 0], [75, 75, 75])
-      ];
-
-      lamps.forEach(lamp => scene.add(lamp));
 
       // 开始动画
       animate();
@@ -931,6 +595,57 @@
       console.error('Scene initialization failed:', error);
     });
 
+    // 创建阴影贴图和阴影程序
+    const SHADOW_MAP_SIZE = 2048;
+    const shadowFramebuffer = gl.createFramebuffer();
+    const shadowTexture = gl.createTexture();
+    const shadowProgram = createProgram(gl, shadowShaders.vs, shadowShaders.fs);
+    
+    // 为阴影渲染创建复用的缓冲区
+    const shadowBuffers = new Map();
+    
+    // 初始化阴影贴图纹理
+    gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
+    gl.texImage2D(
+      gl.TEXTURE_2D, 0, gl.RGBA,
+      SHADOW_MAP_SIZE, SHADOW_MAP_SIZE,
+      0, gl.RGBA, gl.UNSIGNED_BYTE, null
+    );
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    
+    // 创建深度缓冲区
+    const depthBuffer = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, depthBuffer);
+    gl.renderbufferStorage(
+      gl.RENDERBUFFER, gl.DEPTH_COMPONENT16,
+      SHADOW_MAP_SIZE, SHADOW_MAP_SIZE
+    );
+    
+    // 配置帧缓冲区
+    gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
+      gl.TEXTURE_2D, shadowTexture, 0
+    );
+    gl.framebufferRenderbuffer(
+      gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT,
+      gl.RENDERBUFFER, depthBuffer
+    );
+    
+    // 检查帧缓冲状态
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      console.error('Framebuffer is not complete:', status);
+    }
+    
+    // 重置绑定
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+
     // 渲染循环
     function animate() {
         if (!scene.ready) {
@@ -938,12 +653,24 @@
             return;
         }
         
-        // 更新时间 - 使用相对时间而不是累加
+        // 更新时间
         const currentTime = performance.now();
-        const time = (currentTime - startTime) / 1000;  // 转换为秒
+        const time = (currentTime - startTime) / 1000;
         
         // 更新相机位置
         updateCameraPosition();
+        
+        // 更新光源位置
+        if (updateLightPosition()) {
+            // 如果光源移动了，更新可视化对象的位置
+            scene.children.forEach(obj => {
+                if (obj.isLightVisualizer) {
+                    obj.mat.data.u_ModelMatrix.value = new Matrix4()
+                        .setPosition(...lights[0].position)
+                        .elements;
+                }
+            });
+        }
         
         // 更新轨道控制器
         orbit.update();
@@ -953,7 +680,7 @@
         const lightColors = [];
         lights.forEach(light => {
             lightPositions.push(...light.position);
-            lightColors.push(...light.color.map(x => x/800));
+            lightColors.push(...light.color.map(x => x/400));
         });
 
         // 更新动画物体
@@ -970,7 +697,7 @@
               break;
             
             case 'rotate':
-              // 自转动画 - 使用相对时间计算旋转角度
+              // 自转动画
               const angle = (time * animation.speed) % (2 * Math.PI);
               modelMatrix
                 .setPosition(...basePosition)
@@ -991,7 +718,99 @@
           object.mat.data.u_ModelMatrix.value = modelMatrix.elements;
         });
 
-        // 渲染主场景
+        // 计算光源视图矩阵
+        const lightView = new Matrix4().lookAt(
+            new Vector3(...lightPositions.slice(0, 3)),  // 光源位置
+            new Vector3(0, 0, 0),  // 目标点（场景中心）
+            new Vector3(0, 1, 0)   // 上方向
+        );
+
+        // 计算光源投影矩阵（使用正交投影）
+        const lightProjection = new Matrix4().makeOrthographic(
+            -20, 20,   // left, right
+            -20, 20,   // bottom, top
+            -20, 40    // near, far
+        );
+
+        // 计算光空间变换矩阵
+        const lightSpaceMatrix = new Matrix4().multiplyMatrices(lightProjection, lightView);
+
+        // 第一步：渲染阴影贴图
+        gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
+        gl.viewport(0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        // 使用阴影着色器程序
+        gl.useProgram(shadowProgram);
+
+        // 更新场景中所有对象的阴影数据
+        scene.children.forEach(obj => {
+            if (obj.mat) {
+                const shadowData = {
+                    u_ModelMatrix: {
+                        value: obj.mat.data.u_ModelMatrix.value,
+                        type: 'uniformMatrix4fv'
+                    },
+                    u_LightSpaceMatrix: {
+                        value: lightSpaceMatrix.elements,
+                        type: 'uniformMatrix4fv'
+                    }
+                };
+                
+                // 设置阴影着色器的uniforms
+                Object.entries(shadowData).forEach(([key, { value, type }]) => {
+                    const location = gl.getUniformLocation(shadowProgram, key);
+                    if (location) {
+                        if (type === 'uniformMatrix4fv') {
+                            gl.uniformMatrix4fv(location, false, value);
+                        }
+                    }
+                });
+
+                // 绘制对象
+                const { geo } = obj;
+                const objId = obj.id || Math.random().toString(36);
+                obj.id = objId;
+
+                // 获取或创建缓冲区
+                if (!shadowBuffers.has(objId)) {
+                    const buffers = {};
+                    Object.entries(geo.data).forEach(([key, { array, size }]) => {
+                        const buffer = gl.createBuffer();
+                        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+                        gl.bufferData(gl.ARRAY_BUFFER, array, gl.STATIC_DRAW);
+                        buffers[key] = buffer;
+                    });
+                    if (geo.index) {
+                        const buffer = gl.createBuffer();
+                        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer);
+                        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, geo.index.array, gl.STATIC_DRAW);
+                        buffers.index = buffer;
+                    }
+                    shadowBuffers.set(objId, buffers);
+                }
+
+                // 使用已存在的缓冲区
+                const buffers = shadowBuffers.get(objId);
+                Object.entries(geo.data).forEach(([key, { size }]) => {
+                    const location = gl.getAttribLocation(shadowProgram, key);
+                    if (location >= 0) {
+                        gl.bindBuffer(gl.ARRAY_BUFFER, buffers[key]);
+                        gl.enableVertexAttribArray(location);
+                        gl.vertexAttribPointer(location, size, gl.FLOAT, false, 0, 0);
+                    }
+                });
+
+                if (geo.index) {
+                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.index);
+                    gl.drawElements(gl[obj.mat.mode], geo.index.array.length, gl.UNSIGNED_SHORT, 0);
+                } else {
+                    gl.drawArrays(gl[obj.mat.mode], 0, geo.data.a_Position.array.length / 3);
+                }
+            }
+        });
+
+        // 第二步：渲染主场景
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.viewport(0, 0, canvas.width, canvas.height);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -1015,9 +834,25 @@
                     u_LightColors: {
                         value: lightColors,
                         type: 'uniform3fv'
+                    },
+                    u_LightSpaceMatrix: {
+                        value: lightSpaceMatrix.elements,
+                        type: 'uniformMatrix4fv'
                     }
                 };
                 Object.assign(obj.mat.data, data);
+            }
+        });
+
+        // 绑定阴影贴图
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
+        scene.children.forEach(obj => {
+            if (obj.mat && obj.mat.program === 'Main') {
+                const location = gl.getUniformLocation(obj.mat.program, 'u_ShadowMap');
+                if (location) {
+                    gl.uniform1i(location, 2);  // 使用纹理单元2
+                }
             }
         });
         
@@ -1030,10 +865,15 @@
     function showHelp() {
       const helpText = `
 键控制说明：
-  移动：
+  相机移动：
     W/S - 前进/后退
     A/D - 左右移动
     Q/E - 上升/下降
+    
+  光源控制：
+    I/K - 前后移动
+    J/L - 左右移动
+    U/O - 上下移动
     
   功能键：
     R - 重置相机位置
@@ -1128,52 +968,210 @@
       document.body.appendChild(helpPanel);
     });
 
-    // 创建阴影贴图
-    const SHADOW_MAP_SIZE = 2048;
-    const shadowFramebuffer = gl.createFramebuffer();
-    const shadowTexture = gl.createTexture();
-    
-    // 初始化阴影贴图纹理
-    gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
-    gl.texImage2D(
-      gl.TEXTURE_2D, 0, gl.RGBA,
-      SHADOW_MAP_SIZE, SHADOW_MAP_SIZE,
-      0, gl.RGBA, gl.UNSIGNED_BYTE, null
-    );
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    
-    // 创建深度缓冲区
-    const depthBuffer = gl.createRenderbuffer();
-    gl.bindRenderbuffer(gl.RENDERBUFFER, depthBuffer);
-    gl.renderbufferStorage(
-      gl.RENDERBUFFER, gl.DEPTH_COMPONENT16,
-      SHADOW_MAP_SIZE, SHADOW_MAP_SIZE
-    );
-    
-    // 配置帧缓冲区
-    gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
-    gl.framebufferTexture2D(
-      gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
-      gl.TEXTURE_2D, shadowTexture, 0
-    );
-    gl.framebufferRenderbuffer(
-      gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT,
-      gl.RENDERBUFFER, depthBuffer
-    );
-    
-    // 检查帧缓冲状态
-    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
-    if (status !== gl.FRAMEBUFFER_COMPLETE) {
-      console.error('Framebuffer is not complete:', status);
+    // 重置场景状态
+    function resetScene() {
+      // 重置相机位置
+      camera.position.copy(eye);
+      target.copy(new Vector3(0, 6, -10));
+      
+      // 重置光源位置
+      if (lights[0]) {
+        lights[0].position.copy(initialLightPosition);
+        // 更新光源可视化对象的位置
+        scene.children.forEach(obj => {
+          if (obj.isLightVisualizer) {
+            obj.mat.data.u_ModelMatrix.value = new Matrix4()
+              .setPosition(...initialLightPosition)
+              .elements;
+          }
+        });
+        // 更新光照数据
+        const lightPositions = [];
+        const lightColors = [];
+        lights.forEach(light => {
+          lightPositions.push(...light.position);
+          lightColors.push(...light.color.map(x => x/400));
+        });
+        // 更新所有对象的光照数据
+        scene.children.forEach(obj => {
+          if (obj.mat && obj.mat.data) {
+            obj.mat.data.u_LightPositions = {
+              value: lightPositions,
+              type: 'uniform3fv'
+            };
+            obj.mat.data.u_LightColors = {
+              value: lightColors,
+              type: 'uniform3fv'
+            };
+          }
+        });
+      }
+      orbit.update();
+    }
+
+    window.addEventListener('keydown', (e) => {
+      const key = e.key.toLowerCase();
+      keysPressed.add(key);
+      
+      // 单键功能
+      switch(key) {
+        case 'r': // 重置相机和光源位置
+          // 重置相机
+          camera.position.copy(eye);
+          target.copy(new Vector3(0, 6, -10));
+          
+          // 重置光源
+          if (lights[0]) {
+            lights[0].position.copy(initialLightPosition);
+            // 更新光源可视化对象
+            scene.children.forEach(obj => {
+              if (obj.isLightVisualizer) {
+                obj.mat.data.u_ModelMatrix.value = new Matrix4()
+                  .setPosition(...initialLightPosition)
+                  .elements;
+              }
+            });
+          }
+          
+          orbit.update();
+          break;
+        
+        case 'h': // 显示/隐藏帮助信息
+          showHelp();
+          break;
+      }
+    });
+
+    // 更新光源位置
+    function updateLightPosition() {
+      if (!lights[0]) return;
+      
+      let moved = false;
+      const light = lights[0];
+      
+      // 光源前后移动 (I/K) - 沿Z轴
+      if (keysPressed.has('i')) {
+        light.position.z -= lightMoveSpeed;
+        moved = true;
+      }
+      if (keysPressed.has('k')) {
+        light.position.z += lightMoveSpeed;
+        moved = true;
+      }
+      
+      // 光源左右移动 (J/L) - 沿X轴
+      if (keysPressed.has('j')) {
+        light.position.x -= lightMoveSpeed;
+        moved = true;
+      }
+      if (keysPressed.has('l')) {
+        light.position.x += lightMoveSpeed;
+        moved = true;
+      }
+      
+      // 光源上下移动 (U/O) - 沿Y轴
+      if (keysPressed.has('u')) {
+        light.position.y += lightMoveSpeed;
+        moved = true;
+      }
+      if (keysPressed.has('o')) {
+        light.position.y -= lightMoveSpeed;
+        moved = true;
+      }
+      
+      if (moved) {
+        // 更新光源可视化对象的位置
+        scene.children.forEach(obj => {
+          if (obj.isLightVisualizer) {
+            obj.mat.data.u_ModelMatrix.value = new Matrix4()
+              .setPosition(...light.position)
+              .elements;
+          }
+        });
+        
+        // 更新光照数据
+        const lightPositions = [];
+        const lightColors = [];
+        lights.forEach(light => {
+          lightPositions.push(...light.position);
+          lightColors.push(...light.color.map(x => x/400));
+        });
+        
+        // 更新所有对象的光照数据
+        scene.children.forEach(obj => {
+          if (obj.mat && obj.mat.data) {
+            obj.mat.data.u_LightPositions = {
+              value: lightPositions,
+              type: 'uniform3fv'
+            };
+            obj.mat.data.u_LightColors = {
+              value: lightColors,
+              type: 'uniform3fv'
+            };
+          }
+        });
+      }
+      
+      return moved;
     }
     
-    // 置绑定
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.bindTexture(gl.TEXTURE_2D, null);
-    gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+    // 相机移动函数
+    function updateCameraPosition() {
+      const { position } = camera;
+      // 获取相机到目标点的方向作为前方向
+      const forward = target.clone().sub(position).normalize();
+      // 计算右方向
+      const right = forward.clone().cross(new Vector3(0, 1, 0)).normalize();
+      
+      let moved = false;
+      // 前后移动
+      if (keysPressed.has('w')) {
+        const movement = forward.clone().multiplyScalar(moveSpeed);
+        position.add(movement);
+        target.add(movement);
+        moved = true;
+      }
+      if (keysPressed.has('s')) {
+        const movement = forward.clone().multiplyScalar(-moveSpeed);
+        position.add(movement);
+        target.add(movement);
+        moved = true;
+      }
+      
+      // 左右移动
+      if (keysPressed.has('a')) {
+        const movement = right.clone().multiplyScalar(-moveSpeed);
+        position.add(movement);
+        target.add(movement);
+        moved = true;
+      }
+      if (keysPressed.has('d')) {
+        const movement = right.clone().multiplyScalar(moveSpeed);
+        position.add(movement);
+        target.add(movement);
+        moved = true;
+      }
+      
+      // 上下移动
+      if (keysPressed.has('q')) {
+        position.y += moveSpeed;
+        target.y += moveSpeed;
+        moved = true;
+      }
+      if (keysPressed.has('e')) {
+        position.y -= moveSpeed;
+        target.y -= moveSpeed;
+        moved = true;
+      }
+      
+      if (moved) {
+        orbit.update();
+      }
+    }
+
+    window.addEventListener('keyup', (e) => {
+      keysPressed.delete(e.key.toLowerCase());
+    });
   </script>
 </body>
 

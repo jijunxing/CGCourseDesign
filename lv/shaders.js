@@ -175,116 +175,144 @@ const shadowFS = `
   }
 `;
 
-// 修改主着色器的顶点着色器，添加阴影相关计算
-const mainVS = `
-  attribute vec3 a_Position;
-  attribute vec3 a_Normal;
-  attribute vec2 a_TexCoord;
-  attribute float a_TextureType;
-  
-  uniform mat4 u_ModelMatrix;
-  uniform mat4 u_PvMatrix;
-  uniform mat4 u_LightMVP;    // 光源视角的MVP矩阵
-  
-  varying vec3 v_Normal;
-  varying vec3 v_Position;
-  varying vec2 v_TexCoord;
-  varying float v_TextureType;
-  varying vec4 v_PositionFromLight;  // 光源视角的位置
-  
-  void main() {
-    gl_Position = u_PvMatrix * u_ModelMatrix * vec4(a_Position, 1.0);
-    v_Position = (u_ModelMatrix * vec4(a_Position, 1.0)).xyz;
-    v_Normal = normalize(mat3(u_ModelMatrix) * a_Normal);
-    v_TexCoord = a_TexCoord;
-    v_TextureType = a_TextureType;
-    v_PositionFromLight = u_LightMVP * vec4(a_Position, 1.0);  // 计算光源视角的位置
-  }
-`;
-
-// 修改主着色器的片元着色器，添加阴影计算
-const mainFS = `
-  precision mediump float;
-  
-  uniform vec3 u_Eye;
-  uniform vec3 u_LightPositions[4];
-  uniform vec3 u_LightColors[4];
-  uniform sampler2D u_WallTex;
-  uniform sampler2D u_FloorTex;
-  uniform sampler2D u_ShadowMap;   // 阴影贴图
-  uniform vec3 u_Color;
-  uniform float u_Metallic;
-  uniform float u_Roughness;
-  
-  varying vec3 v_Normal;
-  varying vec3 v_Position;
-  varying vec2 v_TexCoord;
-  varying float v_TextureType;
-  varying vec4 v_PositionFromLight;
-  
-  float unpackDepth(vec4 rgbaDepth) {
-    return rgbaDepth.r;
-  }
-  
-  float getShadowFactor() {
-    vec3 shadowCoord = (v_PositionFromLight.xyz / v_PositionFromLight.w) * 0.5 + 0.5;
-    float shadowDepth = unpackDepth(texture2D(u_ShadowMap, shadowCoord.xy));
-    float currentDepth = shadowCoord.z;
+// 阴影贴图生成着色器
+export const shadowShaders = {
+  vs: `
+    attribute vec3 a_Position;
     
-    // 添加偏移量避免阴影痤疮
-    float bias = 0.005;
-    return currentDepth - bias > shadowDepth ? 0.5 : 1.0;
-  }
-  
-  void main() {
-    vec3 normal = normalize(v_Normal);
-    vec3 viewDir = normalize(u_Eye - v_Position);
+    uniform mat4 u_ModelMatrix;
+    uniform mat4 u_LightSpaceMatrix;
     
-    // 获取纹理颜色
-    vec3 baseColor;
-    if(v_TextureType < 0.5) {  // 使用墙壁纹理
-      baseColor = texture2D(u_WallTex, v_TexCoord).rgb;
-    } else if(v_TextureType < 1.5) {  // 使用地板纹理
-      baseColor = texture2D(u_FloorTex, v_TexCoord).rgb;
-    } else {  // 使用纯色
-      baseColor = u_Color;
+    void main() {
+      gl_Position = u_LightSpaceMatrix * u_ModelMatrix * vec4(a_Position, 1.0);
     }
+  `,
+  fs: `
+    precision mediump float;
     
-    vec3 finalColor = vec3(0.0);
-    float shadowFactor = getShadowFactor();
-    
-    // 环境光
-    vec3 ambient = baseColor * 0.2;
-    finalColor += ambient;
-    
-    // 对每个光源计算光照
-    for(int i = 0; i < 1; i++) {
-      vec3 lightDir = normalize(u_LightPositions[i] - v_Position);
-      vec3 halfDir = normalize(lightDir + viewDir);
-      
-      // 漫反射
-      float diff = max(dot(normal, lightDir), 0.0);
-      vec3 diffuse = diff * u_LightColors[i] * baseColor;
-      
-      // 镜面反射
-      float spec = pow(max(dot(normal, halfDir), 0.0), 32.0);
-      vec3 specular = spec * u_LightColors[i] * mix(vec3(0.04), baseColor, u_Metallic);
-      
-      finalColor += (diffuse + specular) * shadowFactor;
+    void main() {
+      gl_FragColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
     }
-    
-    gl_FragColor = vec4(finalColor, 1.0);
-  }
-`;
-
-export const mainShaders = {
-  vs: mainVS,
-  fs: mainFS
+  `
 };
 
-export const shadowShaders = {
-  vs: shadowVS,
-  fs: shadowFS
+// 主要着色器
+export const mainShaders = {
+  vs: `
+    attribute vec3 a_Position;
+    attribute vec3 a_Normal;
+    attribute vec2 a_TexCoord;
+    attribute float a_TextureType;
+    
+    uniform mat4 u_ModelMatrix;
+    uniform mat4 u_PvMatrix;
+    uniform mat4 u_LightSpaceMatrix;
+    
+    varying vec3 v_Position;
+    varying vec3 v_Normal;
+    varying vec2 v_TexCoord;
+    varying float v_TextureType;
+    varying vec4 v_LightSpacePos;
+    
+    void main() {
+      vec4 worldPos = u_ModelMatrix * vec4(a_Position, 1.0);
+      gl_Position = u_PvMatrix * worldPos;
+      
+      v_Position = worldPos.xyz;
+      v_Normal = mat3(u_ModelMatrix) * a_Normal;
+      v_TexCoord = a_TexCoord;
+      v_TextureType = a_TextureType;
+      v_LightSpacePos = u_LightSpaceMatrix * worldPos;
+    }
+  `,
+  fs: `
+    precision mediump float;
+    
+    uniform vec3 u_Eye;
+    uniform vec3 u_LightPositions[1];
+    uniform vec3 u_LightColors[1];
+    uniform sampler2D u_WallTex;
+    uniform sampler2D u_FloorTex;
+    uniform sampler2D u_ShadowMap;
+    uniform vec3 u_Color;
+    uniform float u_Metallic;
+    uniform float u_Roughness;
+    
+    varying vec3 v_Position;
+    varying vec3 v_Normal;
+    varying vec2 v_TexCoord;
+    varying float v_TextureType;
+    varying vec4 v_LightSpacePos;
+    
+    float getShadow() {
+      vec3 projCoords = v_LightSpacePos.xyz / v_LightSpacePos.w;
+      projCoords = projCoords * 0.5 + 0.5;
+      
+      float currentDepth = projCoords.z;
+      float bias = 0.001;  // 减小偏移值，使阴影更精确
+      
+      // 使用PCF软阴影
+      float shadow = 0.0;
+      vec2 texelSize = 1.0 / vec2(2048.0);
+      for(int x = -2; x <= 2; x++) {  // 增加采样范围
+        for(int y = -2; y <= 2; y++) {
+          float pcfDepth = texture2D(u_ShadowMap, projCoords.xy + vec2(x, y) * texelSize).r;
+          shadow += currentDepth - bias > pcfDepth ? 0.8 : 0.0;  // 增加阴影强度
+        }
+      }
+      shadow /= 25.0;  // 5x5 采样
+      
+      if(projCoords.z > 1.0) {
+        shadow = 0.0;
+      }
+      
+      return shadow;
+    }
+    
+    void main() {
+      vec3 normal = normalize(v_Normal);
+      vec3 viewDir = normalize(u_Eye - v_Position);
+      
+      // 获取材质颜色
+      vec3 materialColor;
+      if(v_TextureType == 0.0) {
+        materialColor = texture2D(u_WallTex, v_TexCoord).rgb;
+      } else if(v_TextureType == 1.0) {
+        materialColor = texture2D(u_FloorTex, v_TexCoord).rgb;
+      } else {
+        materialColor = u_Color;
+      }
+      
+      // 环境光
+      vec3 ambient = 0.15 * materialColor;  // 降低环境光强度
+      
+      vec3 finalColor = ambient;
+      
+      // 计算阴影
+      float shadow = getShadow();
+      
+      // 对每个光源计算光照
+      for(int i = 0; i < 1; i++) {
+        vec3 lightDir = normalize(u_LightPositions[i] - v_Position);
+        float distance = length(u_LightPositions[i] - v_Position);
+        float attenuation = 1.0 / (1.0 + 0.09 * distance + 0.032 * distance * distance);  // 增加衰减
+        
+        // 漫反射
+        float diff = max(dot(normal, lightDir), 0.0);
+        vec3 diffuse = diff * u_LightColors[i] * materialColor;
+        
+        // 镜面反射
+        vec3 halfwayDir = normalize(lightDir + viewDir);
+        float spec = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
+        vec3 specular = spec * u_LightColors[i] * mix(vec3(0.04), materialColor, u_Metallic);
+        
+        // 应用阴影和衰减
+        finalColor += (1.0 - shadow) * (diffuse + specular) * attenuation;
+      }
+      
+      gl_FragColor = vec4(finalColor, 1.0);
+    }
+  `
 };
 
 // 添加FXAA抗锯齿着色器
