@@ -242,9 +242,9 @@ const mainFS = `
     
     // 获取纹理颜色
     vec3 baseColor;
-    if(v_TextureType == 0.0) {  // 使用墙壁纹理
+    if(v_TextureType < 0.5) {  // 使用墙壁纹理
       baseColor = texture2D(u_WallTex, v_TexCoord).rgb;
-    } else if(v_TextureType == 1.0) {  // 使用地板纹理
+    } else if(v_TextureType < 1.5) {  // 使用地板纹理
       baseColor = texture2D(u_FloorTex, v_TexCoord).rgb;
     } else {  // 使用纯色
       baseColor = u_Color;

@@ -424,6 +424,10 @@
               a_Normal: {
                 array: new Float32Array(sphere.normals),
                 size: 3
+              },
+              a_TextureType: {
+                array: new Float32Array(sphere.vertices.length / 3).fill(2.0),  // 使用纯色
+                size: 1
               }
             },
             index: {
@@ -542,7 +546,7 @@
               type: 'uniform1i'
           },
           u_FloorTex: {
-              value: 1,  // 地���使用纹理单元1
+              value: 1,  // 地板使用纹理单元1
               type: 'uniform1i'
           }
       };
@@ -585,7 +589,7 @@
           },
           animation: {
             type: 'rotate',
-            speed: 0.01
+            speed: 0.0002
           }
         },
         // 漂浮的发光球
@@ -1017,7 +1021,7 @@
               break;
             
             case 'pulse':
-              // 脉冲发光动画
+              // 脉冲光动画
               const intensity = 1 + Math.sin(time * animation.frequency) * 0.3;
               object.mat.data.u_Color.value = material.color.map(c => c * intensity);
               break;

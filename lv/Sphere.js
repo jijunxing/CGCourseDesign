@@ -28,7 +28,7 @@ export default class Sphere{
     // 生成所有顶点数据（包括极点）
     for (let y = 0; y <= heightSegments; y++) {
       const phi = phiSize * y
-      const v = 1 - (y / heightSegments)
+      const v = y / heightSegments
       
       for (let x = 0; x <= widthSegments; x++) {
         const theta = thetaSize * x
@@ -39,7 +39,7 @@ export default class Sphere{
         const vertex = new Vector3().setFromSpherical(spherical)
         vertices.push(vertex.x, vertex.y, vertex.z)
         
-        // 法线就是顶点坐标的单位向量
+        // 法线就是从球心到顶点的方向
         const normal = vertex.clone().normalize()
         normals.push(normal.x, normal.y, normal.z)
         
@@ -50,15 +50,27 @@ export default class Sphere{
 
     // 生成索引
     for (let y = 0; y < heightSegments; y++) {
-      for (let x = 0; x < widthSegments; x++) {
-        const a = y * (widthSegments + 1) + x
-        const b = a + 1
-        const c = a + (widthSegments + 1)
-        const d = c + 1
+      const yOffset = y * (widthSegments + 1)
+      const yNextOffset = (y + 1) * (widthSegments + 1)
 
-        // 每个格子生成两个三角形
-        indexes.push(a, b, d)
-        indexes.push(a, d, c)
+      for (let x = 0; x < widthSegments; x++) {
+        const a = yOffset + x
+        const b = yOffset + x + 1
+        const c = yNextOffset + x
+        const d = yNextOffset + x + 1
+
+        // 在极点附近使用特殊的三角形布局
+        if (y === 0) {
+          // 北极点附近的三角形
+          indexes.push(a, d, c)
+        } else if (y === heightSegments - 1) {
+          // 南极点附近的三角形
+          indexes.push(a, b, c)
+        } else {
+          // 中间区域的四边形（两个三角形）
+          indexes.push(a, b, d)
+          indexes.push(a, d, c)
+        }
       }
     }
 
