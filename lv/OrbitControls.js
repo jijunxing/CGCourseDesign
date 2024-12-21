@@ -22,138 +22,55 @@ const defAttr = () => ({
   spherical:new Spherical(),
   rotateDir: 'xy',
   enablePan: true,
-  minZoom: 0,
-  maxZoom: Infinity,
+  enableZoom: true,
+  minZoom: 0.1,
+  maxZoom: 10,
+  zoomSpeed: 1.0
 })
 
 export default class OrbitControls{
   constructor(attr){
     Object.assign(this, defAttr(), attr)
-    this.resetSpherical()
+    // 初始化欧拉角
+    this._euler = { x: 0, y: 0 };
     this.updateCamera()
   }
-  pointerdown({ clientX, clientY,button }) {
-    const {dragStart,mouseButtons}=this
+
+  pointerdown({ clientX, clientY, button }) {
+    const {dragStart, mouseButtons} = this
     dragStart.set(clientX, clientY)
     this.state = mouseButtons.get(button)
   }
+
   pointermove({ clientX, clientY }) {
-    const { dragStart, dragEnd, state,enablePan, camera: { type } } = this
+    const { dragStart, dragEnd, state, enablePan, camera: { type } } = this
     dragEnd.set(clientX, clientY)
     switch (state) {
       case 'pan':
-        enablePan&&this[`pan${type}`](dragEnd.clone().sub(dragStart))
+        enablePan && this[`pan${type}`](dragEnd.clone().sub(dragStart))
         break
       case 'rotate':
         this.rotate(dragEnd.clone().sub(dragStart))
         break
     }
-    dragStart.copy(dragEnd)/*  */
+    dragStart.copy(dragEnd)
   }
+
   pointerup() {
     this.state = 'none'
   }
-  wheel({ deltaY },type=this.camera.type) {
-    const { zoomScale} = this
-    let scale=deltaY < 0?zoomScale:1 / zoomScale
-    this[`dolly${type}`](scale)
-    this.updateSph()
-  }
-  dollyPerspectiveCamera(dollyScale) {
-    this.spherical.radius /= dollyScale
-  }
-  dollyOrthographicCamera(dollyScale) {
-    const {camera,maxZoom,minZoom}=this
-    camera.zoom *= dollyScale
-    const zoom = camera.zoom * dollyScale;
-    camera.zoom = Math.max(
-      Math.min(maxZoom, zoom),
-      minZoom
-    )
-    camera.updateProjectionMatrix()
-  }
-  panPerspectiveCamera({ x, y }) {
-    const {
-      camera: { matrix, position, fov,up },
-      dom: { clientHeight },
-      panOffset,screenSpacePanning,target
-    } = this
 
-    //视线长度：相机视点到目标点的距离
-    const sightLen = position.clone().sub(target).length()
-    //视椎体垂直夹角的一半(弧度)
-    const halfFov = fov * Math.PI / 360
-    //目标平面的高度
-    const targetHeight = sightLen * Math.tan(halfFov) * 2
-    //目标平面与画布的高度比
-    const ratio = targetHeight / clientHeight
-    //画布位移量转目标平面位移量
-    const distanceLeft = x * ratio
-    const distanceUp = y * ratio
-
-    //相机平移方向
-    //鼠标水平运动时，按照相机本地坐标的x轴平移相机
-    const mx = new Vector3().setFromMatrixColumn(matrix, 0)
-    //鼠标水平运动时，按照相机本地坐标的y轴，或者-z轴平移相机
-    const myOrz = new Vector3()
-    if (screenSpacePanning) {
-      //y轴，正交相机中默认
-      myOrz.setFromMatrixColumn(matrix, 1)
-    } else {
-      //-z轴，透视相机中默认
-      myOrz.crossVectors(up, mx)
-    }
-    //目标平面位移量转世界坐标
-    const vx = mx.clone().multiplyScalar(-distanceLeft)
-    const vy = myOrz.clone().multiplyScalar(distanceUp)
-    panOffset.copy(vx.add(vy))
-
-    this.updatePos()
+  wheel({ deltaY }) {
+    // 禁用滚轮功能
+    return;
   }
-
-  panOrthographicCamera({ x, y }) {
-    const {
-      camera: { right, left, top, bottom, matrix, up },
-      dom: { clientWidth, clientHeight },
-      panOffset,screenSpacePanning
-    } = this
-      
-    const cameraW = right - left
-    const cameraH = top - bottom
-    const ratioX = x / clientWidth
-    const ratioY = y / clientHeight
-    const distanceLeft = ratioX * cameraW
-    const distanceUp = ratioY * cameraH
-    const mx = new Vector3().setFromMatrixColumn(matrix, 0)
-    const vx = mx.clone().multiplyScalar(-distanceLeft)
-    const vy = new Vector3()
-    if (screenSpacePanning) {
-      vy.setFromMatrixColumn(matrix, 1)
-    } else {
-      vy.crossVectors(up, mx)
-    }
-    vy.multiplyScalar(distanceUp)
-    panOffset.copy(vx.add(vy))
-    this.updatePos()
-  }
-
 
   rotate({ x, y }) {
-    const {
-      camera,
-      target,
-      rotateDir,
-    } = this
+    const sensitivity = 0.002;
     
-    // 增加灵敏度
-    const sensitivity = 0.003; 
-    const deltaX = x * sensitivity;
-    const deltaY = y * sensitivity;
-    
-    // 限制垂直视角范围
-    this._euler = this._euler || { x: 0, y: 0 };
-    this._euler.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this._euler.x - deltaY));
-    this._euler.y -= deltaX;
+    // 更新欧拉角
+    this._euler.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this._euler.x - y * sensitivity));
+    this._euler.y -= x * sensitivity;
     
     // 计算新的朝向
     const direction = new Vector3();
@@ -161,63 +78,38 @@ export default class OrbitControls{
     direction.y = Math.sin(this._euler.x);
     direction.z = Math.cos(this._euler.y) * Math.cos(this._euler.x);
     
-    // 更新目标点位置
-    const distance = 1; // 增加距离，让控制更平滑
-    target.copy(camera.position).add(direction.multiplyScalar(distance));
+    // 更新目标点位置（在相机前方固定距离处）
+    const { camera, target } = this;
+    target.copy(camera.position).add(direction);
     
     this.updateCamera();
   }
 
   update() {
-    const {camera, target, panOffset} = this
+    const { camera, target, panOffset } = this;
     
-    // 只需要处理平移
+    // 处理平移
     if (panOffset.lengthSq() > 0) {
-      target.add(panOffset)
-      camera.position.add(panOffset)
-      panOffset.set(0, 0, 0)
+      camera.position.add(panOffset);
+      target.add(panOffset);
+      panOffset.set(0, 0, 0);
     }
 
-    // 更新相机朝向
-    camera.lookAt(target)
-    camera.updateMatrixWorld(true)
-  }
-
-  //基于平移量更新相机轨道
-  updatePos() {
-    const { camera, target, panOffset } = this
-    target.add(panOffset)
-    camera.position.add(panOffset)
-    this.updateCamera()
-    panOffset.set(0, 0, 0)
-  }
-  //基于球坐标更新相机轨道
-  updateSph() {
-    const { camera, target } = this;
     this.updateCamera();
   }
 
-  // 更新投影视图矩阵
+  // 更新相机
   updateCamera() {
-    const { camera, target } = this
-    camera.lookAt(target)
-    camera.updateMatrixWorld(true)
-  }
-
-  // 重置球坐标
-  resetSpherical() {
-    const {spherical,camera,target}=this
-    spherical.setFromVector3(
-        camera.position.clone().sub(target)
-    )
+    const { camera, target } = this;
+    camera.lookAt(target);
+    camera.updateMatrixWorld(true);
   }
 
   getPvMatrix() {
-    const { camera: { projectionMatrix, matrixWorldInverse } } = this
+    const { camera: { projectionMatrix, matrixWorldInverse } } = this;
     return pvMatrix.multiplyMatrices(
       projectionMatrix,
-      matrixWorldInverse,
-    )
+      matrixWorldInverse
+    );
   }
-
 }

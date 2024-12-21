@@ -55,6 +55,7 @@
     // 在文件开头添加这些矩阵对象
     const tempMatrix4 = new Matrix4();
     const normalMatrix = new Matrix4();
+    let startTime = performance.now();  // 添加起始时间
 
     // 目标点
     const target = new Vector3(0, 6, -10)
@@ -100,6 +101,7 @@
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       orbit.wheel(e);
+      orbit.update();  // 添加update调用以更新相机
     });
 
     // 键盘控制
@@ -118,51 +120,9 @@
           orbit.update();
           break;
         
-        case 'l': // 切换光源可见性
-          scene.children.forEach(obj => {
-            if (obj.mat && obj.mat.programName === 'Emissive') {
-              obj.visible = !obj.visible;
-            }
-          });
-          break;
-        
-        case 'f': // 聚焦到房间中心
-          target.set(0, 6, 0);
-          orbit.update();
-          break;
-        
-        case 'c': // 切换相机模式（正交/透视）
-          if (camera instanceof PerspectiveCamera) {
-            camera = new OrthographicCamera(
-              -10 * aspect, 10 * aspect,
-              10, -10,
-              near, far
-            );
-          } else {
-            camera = new PerspectiveCamera(fov, aspect, near, far);
-          }
-          camera.position.copy(eye);
-          orbit.camera = camera;
-          break;
-        
         case 'h': // 显示/隐藏帮助信息
           showHelp();
           break;
-      }
-      
-      // 组合键功能
-      if (e.ctrlKey || e.metaKey) { // Ctrl/Cmd 键
-        switch(key) {
-          case '=': // 增加移动速度
-          case '+':
-            moveSpeed = Math.min(moveSpeed * 1.2, 2.0);
-            break;
-          
-          case '-': // 减小移动速度
-          case '_':
-            moveSpeed = Math.max(moveSpeed * 0.8, 0.1);
-            break;
-        }
       }
     });
     
@@ -173,7 +133,7 @@
     // 相机移动函数
     function updateCameraPosition() {
       const { position } = camera;
-      // 获取相机到目标点的方向作为前进方向
+      // 获取相机到目标点的方向作为前方向
       const forward = target.clone().sub(position).normalize();
       // 计算右方向
       const right = forward.clone().cross(new Vector3(0, 1, 0)).normalize();
@@ -576,20 +536,20 @@
             frequency: 1.2
           }
         },
-        // 漂浮的水晶体（八面体）
+        // 漂浮的正方体
         {
           geometry: new Box(0.8, 0.8, 0.8),
           position: [-2, 4.2, 3],
-          rotation: [Math.PI/4, Math.PI/4, 0],
+          rotation: [Math.PI/4, 0, 0],  // 只保留X轴的初始旋转
           material: {
             metallic: 0.3,
             roughness: 0.1,
-            color: [0.4, 0.8, 1.0], // 蓝色水晶
+            color: [0.4, 0.8, 1.0], // 蓝色
             useTexture: false
           },
           animation: {
             type: 'rotate',
-            speed: 0.0002
+            speed: 0.0001
           }
         },
         // 漂浮的发光球
@@ -978,8 +938,9 @@
             return;
         }
         
-        // 更新时间
-        time += 0.016;
+        // 更新时间 - 使用相对时间而不是累加
+        const currentTime = performance.now();
+        const time = (currentTime - startTime) / 1000;  // 转换为秒
         
         // 更新相机位置
         updateCameraPosition();
@@ -999,7 +960,7 @@
         animatedObjects.forEach(({ object, animation, basePosition, baseRotation, modelMatrix, material }) => {
           switch (animation.type) {
             case 'float':
-              // 上下漂浮动画
+              // 上下浮动画
               const floatOffset = Math.sin(time * animation.frequency) * animation.amplitude;
               modelMatrix.setPosition(
                 basePosition[0],
@@ -1009,14 +970,13 @@
               break;
             
             case 'rotate':
-              // 自转动画 - 使用初始旋转角度加上时间增量
+              // 自转动画 - 使用相对时间计算旋转角度
+              const angle = (time * animation.speed) % (2 * Math.PI);
               modelMatrix
                 .setPosition(...basePosition)
                 .multiply(
                   new Matrix4()
-                    .makeRotationX(baseRotation[0])
-                    .multiply(new Matrix4().makeRotationY(baseRotation[1] + time * animation.speed))
-                    .multiply(new Matrix4().makeRotationZ(baseRotation[2]))
+                    .makeRotationX(angle)
                 );
               break;
             
@@ -1077,19 +1037,12 @@
     
   功能键：
     R - 重置相机位置
-    L - 切换光源可见性
-    F - 聚焦到房间中心
-    C - 切换相机模式
     H - 显示/隐藏帮助
-    
-  速度控制：
-    Ctrl/Cmd + '+' - 增加移动速度
-    Ctrl/Cmd + '-' - 减小移动速度
-    
+      
   鼠标控制：
     左键拖动 - 旋转视角
     右键拖动 - 平移视角
-    滚轮 - 缩放
+
 `;
 
       // 创建或更新帮助面板
@@ -1125,8 +1078,55 @@
       helpPanel.style.opacity = currentDisplay === '0' ? '1' : '0';
     }
 
-    // 在初始化时显示帮助信息
-    window.addEventListener('load', showHelp);
+    // 添加提示信息
+    function showHint() {
+      const hintPanel = document.createElement('div');
+      hintPanel.style.cssText = `
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        background: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 5px;
+        font-family: monospace;
+        pointer-events: none;
+        z-index: 1000;
+        font-size: 14px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        border: 1px solid rgba(255,255,255,0.1);
+      `;
+      hintPanel.textContent = '按 H 显示/隐藏帮助信息';
+      document.body.appendChild(hintPanel);
+    }
+
+    // 在初始化时显示提示信息
+    window.addEventListener('load', () => {
+      showHint();
+      // 初始隐藏帮助面板
+      const helpPanel = document.createElement('div');
+      helpPanel.id = 'helpPanel';
+      helpPanel.style.cssText = `
+        position: fixed;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 15px 20px;
+        border-radius: 10px;
+        font-family: monospace;
+        white-space: pre;
+        pointer-events: none;
+        transition: opacity 0.3s;
+        z-index: 1000;
+        font-size: 14px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        border: 1px solid rgba(255,255,255,0.1);
+        opacity: 0;
+      `;
+      document.body.appendChild(helpPanel);
+    });
 
     // 创建阴影贴图
     const SHADOW_MAP_SIZE = 2048;
